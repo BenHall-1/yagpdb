@@ -17,6 +17,7 @@ var (
 	ConfBotToken     = config.RegisterOption("yagpdb.bottoken", "Token of the bot user", nil)
 	ConfHost         = config.RegisterOption("yagpdb.host", "Host without the protocol, example: example.com, used by the webserver", nil)
 	ConfEmail        = config.RegisterOption("yagpdb.email", "Email used when fetching lets encrypt certificate", "")
+	ConfPort         = config.RegisterOption("yagpdb.port", "Port to be used for YAGPDB (Pterodactyl Version)", ":5000")
 
 	ConfPQHost     = config.RegisterOption("yagpdb.pqhost", "Postgres host", "localhost")
 	ConfPQUsername = config.RegisterOption("yagpdb.pqusername", "Postgres user", "postgres")
@@ -35,8 +36,7 @@ var (
 	ConfLargeBotShardingEnabled = config.RegisterOption("yagpdb.large_bot_sharding", "Set to enable large bot sharding (for 200k+ guilds)", false)
 	ConfBucketsPerNode          = config.RegisterOption("yagpdb.shard.buckets_per_node", "Number of buckets per node", 8)
 	ConfShardBucketSize         = config.RegisterOption("yagpdb.shard.shard_bucket_size", "Shards per bucket", 2)
-
-	BotOwners []int64
+	BotOwners                   []int64
 )
 
 var configLoaded = false
@@ -57,6 +57,7 @@ func LoadConfig() (err error) {
 		ConfClientSecret,
 		ConfBotToken,
 		ConfHost,
+		ConfPort,
 	}
 
 	for _, v := range requiredConf {

@@ -143,6 +143,14 @@ func GetBotToken() string {
 	return token
 }
 
+func GetPort() string {
+	port := ConfPort.GetString()
+	if !strings.HasPrefix(port, ":") {
+		port = ":" + port
+	}
+	return port
+}
+
 func setupGlobalDGoSession() (err error) {
 
 	BotSession, err = discordgo.New(GetBotToken())

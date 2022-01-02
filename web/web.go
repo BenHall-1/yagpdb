@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -29,7 +30,7 @@ var (
 	Templates *template.Template
 
 	Debug              = true // Turns on debug mode
-	ListenAddressHTTP  = ":5000"
+	ListenAddressHTTP  = ":" + os.Getenv("SERVER_PORT")
 	ListenAddressHTTPS = ":5001"
 
 	// Muxers
