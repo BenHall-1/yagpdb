@@ -1,6 +1,7 @@
 name: Update Yagdactyl with repo changes
 
 on:
+  workflow_dispatch:
   push:
     branches: 
       - master
