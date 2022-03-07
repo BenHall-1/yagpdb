@@ -35,15 +35,19 @@ var (
 		"toByte":     ToByte,
 
 		// string manipulation
-		"joinStr":   joinStrings,
-		"lower":     strings.ToLower,
-		"upper":     strings.ToUpper,
-		"slice":     slice,
-		"urlescape": url.PathEscape,
-		"split":     strings.Split,
-		"title":     strings.Title,
 		"hasPrefix": strings.HasPrefix,
 		"hasSuffix": strings.HasSuffix,
+		"joinStr":   joinStrings,
+		"lower":     strings.ToLower,
+		"slice":     slice,
+		"split":     strings.Split,
+		"title":     strings.Title,
+		"trimSpace": strings.TrimSpace,
+		"upper":     strings.ToUpper,
+		"urlescape": url.PathEscape,
+		"print":     withOutputLimit(fmt.Sprint, MaxStringLength),
+		"println":   withOutputLimit(fmt.Sprintln, MaxStringLength),
+		"printf":    withOutputLimitF(fmt.Sprintf, MaxStringLength),
 
 		// math
 		"add":               add,
@@ -52,6 +56,7 @@ var (
 		"div":               tmplDiv,
 		"mod":               tmplMod,
 		"fdiv":              tmplFDiv,
+		"cbrt":              tmplCbrt,
 		"sqrt":              tmplSqrt,
 		"pow":               tmplPow,
 		"log":               tmplLog,
@@ -71,18 +76,21 @@ var (
 		"complexMessageEdit": CreateMessageEdit,
 		"kindOf":             KindOf,
 
-		"formatTime":  tmplFormatTime,
-		"json":        tmplJson,
-		"in":          in,
-		"inFold":      inFold,
-		"roleAbove":   roleIsAbove,
-		"adjective":   common.RandomAdjective,
-		"noun":        common.RandomNoun,
-		"randInt":     randInt,
-		"shuffle":     shuffle,
-		"seq":         sequence,
-		"currentTime": tmplCurrentTime,
-		"newDate":     tmplNewDate,
+		"formatTime":      tmplFormatTime,
+		"snowflakeToTime": tmplSnowflakeToTime,
+		"loadLocation":    time.LoadLocation,
+		"json":            tmplJson,
+		"in":              in,
+		"inFold":          inFold,
+		"roleAbove":       roleIsAbove,
+		"adjective":       common.RandomAdjective,
+		"noun":            common.RandomNoun,
+		"randInt":         randInt,
+		"shuffle":         shuffle,
+		"seq":             sequence,
+		"currentTime":     tmplCurrentTime,
+		"newDate":         tmplNewDate,
+		"weekNumber":      tmplWeekNumber,
 
 		"humanizeDurationHours":   tmplHumanizeDurationHours,
 		"humanizeDurationMinutes": tmplHumanizeDurationMinutes,
@@ -499,6 +507,8 @@ func baseContextFuncs(c *Context) {
 	c.addContextFunc("sendMessageNoEscapeRetID", c.tmplSendMessage(false, true))
 	c.addContextFunc("editMessage", c.tmplEditMessage(true))
 	c.addContextFunc("editMessageNoEscape", c.tmplEditMessage(false))
+	c.addContextFunc("pinMessage", c.tmplPinMessage(false))
+	c.addContextFunc("unpinMessage", c.tmplPinMessage(true))
 
 	// Mentions
 	c.addContextFunc("mentionEveryone", c.tmplMentionEveryone)
@@ -536,6 +546,7 @@ func baseContextFuncs(c *Context) {
 	c.addContextFunc("getChannel", c.tmplGetChannel)
 	c.addContextFunc("getThread", c.tmplGetThread)
 	c.addContextFunc("getChannelOrThread", c.tmplGetChannelOrThread)
+	c.addContextFunc("getPinCount", c.tmplGetChannelPinCount)
 	c.addContextFunc("getRole", c.tmplGetRole)
 	c.addContextFunc("addReactions", c.tmplAddReactions)
 	c.addContextFunc("addResponseReactions", c.tmplAddResponseReactions)
@@ -703,6 +714,11 @@ func (d Dict) Del(key interface{}) string {
 	return ""
 }
 
+func (d Dict) HasKey(k interface{}) (ok bool) {
+	_, ok = d[k]
+	return
+}
+
 type SDict map[string]interface{}
 
 func (d SDict) Set(key string, value interface{}) (string, error) {
@@ -722,6 +738,11 @@ func (d SDict) Get(key string) interface{} {
 func (d SDict) Del(key string) string {
 	delete(d, key)
 	return ""
+}
+
+func (d SDict) HasKey(k string) (ok bool) {
+	_, ok = d[k]
+	return
 }
 
 type Slice []interface{}
@@ -810,4 +831,24 @@ func (s Slice) StringSlice(flag ...bool) interface{} {
 	}
 
 	return StringSlice
+}
+
+func withOutputLimit(f func(...interface{}) string, limit int) func(...interface{}) (string, error) {
+	return func(args ...interface{}) (string, error) {
+		out := f(args...)
+		if len(out) > limit {
+			return "", fmt.Errorf("string grew too long: length %d (max %d)", len(out), limit)
+		}
+		return out, nil
+	}
+}
+
+func withOutputLimitF(f func(string, ...interface{}) string, limit int) func(string, ...interface{}) (string, error) {
+	return func(format string, args ...interface{}) (string, error) {
+		out := f(format, args...)
+		if len(out) > limit {
+			return "", fmt.Errorf("string grew too long: length %d (max %d)", len(out), limit)
+		}
+		return out, nil
+	}
 }
