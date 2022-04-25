@@ -16,6 +16,7 @@ import (
 	"emperror.dev/errors"
 	"github.com/botlabs-gg/yagpdb/bot"
 	"github.com/botlabs-gg/yagpdb/common"
+	"github.com/botlabs-gg/yagpdb/common/prefix"
 	"github.com/botlabs-gg/yagpdb/common/scheduledevents2"
 	"github.com/jonas747/discordgo/v2"
 	"github.com/jonas747/dstate/v4"
@@ -53,23 +54,24 @@ var (
 		"printf":      withOutputLimitF(fmt.Sprintf, MaxStringLength),
 
 		// math
-		"add":               add,
-		"sub":               tmplSub,
-		"mult":              tmplMult,
-		"div":               tmplDiv,
-		"mod":               tmplMod,
-		"fdiv":              tmplFDiv,
-		"cbrt":              tmplCbrt,
-		"sqrt":              tmplSqrt,
-		"pow":               tmplPow,
-		"log":               tmplLog,
-		"round":             tmplRound,
-		"roundCeil":         tmplRoundCeil,
-		"roundFloor":        tmplRoundFloor,
-		"roundEven":         tmplRoundEven,
-		"humanizeThousands": tmplHumanizeThousands,
+		"add":        add,
+		"cbrt":       tmplCbrt,
+		"div":        tmplDiv,
+		"fdiv":       tmplFDiv,
+		"log":        tmplLog,
+		"mathConst":  tmplMathConstant,
+		"mod":        tmplMod,
+		"mult":       tmplMult,
+		"pow":        tmplPow,
+		"round":      tmplRound,
+		"roundCeil":  tmplRoundCeil,
+		"roundEven":  tmplRoundEven,
+		"roundFloor": tmplRoundFloor,
+		"sqrt":       tmplSqrt,
+		"sub":        tmplSub,
 
 		// misc
+		"humanizeThousands":  tmplHumanizeThousands,
 		"dict":               Dictionary,
 		"sdict":              StringKeyDictionary,
 		"structToSdict":      StructToSdict,
@@ -207,6 +209,7 @@ func (c *Context) setupBaseData() {
 		c.Data["Guild"] = c.GS
 		c.Data["Server"] = c.GS
 		c.Data["server"] = c.GS
+		c.Data["ServerPrefix"] = prefix.GetPrefixIgnoreError(c.GS.ID)
 	}
 
 	if c.CurrentFrame.CS != nil {
