@@ -12,10 +12,10 @@ import (
 	"github.com/botlabs-gg/yagpdb/common/scheduledevents2"
 	seventsmodels "github.com/botlabs-gg/yagpdb/common/scheduledevents2/models"
 	"github.com/botlabs-gg/yagpdb/common/templates"
+	"github.com/botlabs-gg/yagpdb/lib/discordgo"
+	"github.com/botlabs-gg/yagpdb/lib/dstate"
 	"github.com/botlabs-gg/yagpdb/logs"
 	"github.com/jinzhu/gorm"
-	"github.com/jonas747/discordgo/v2"
-	"github.com/jonas747/dstate/v4"
 	"github.com/mediocregopher/radix/v3"
 	"github.com/volatiletech/sqlboiler/queries/qm"
 )
@@ -181,7 +181,7 @@ func sendPunishDM(config *Config, dmMsg string, action ModlogAction, gs *dstate.
 	}
 }
 
-func KickUser(config *Config, guildID int64, channel *dstate.ChannelState, message *discordgo.Message, author *discordgo.User, reason string, user *discordgo.User) error {
+func KickUser(config *Config, guildID int64, channel *dstate.ChannelState, message *discordgo.Message, author *discordgo.User, reason string, user *discordgo.User, del int) error {
 	config, err := getConfigIfNotSet(guildID, config)
 	if err != nil {
 		return common.ErrWithCaller(err)
@@ -192,13 +192,16 @@ func KickUser(config *Config, guildID int64, channel *dstate.ChannelState, messa
 		return err
 	}
 
-	if !config.DeleteMessagesOnKick {
+	if del == 0 {
 		return nil
+	} else if del == -1 && config.DeleteMessagesOnKick {
+		del = 100
 	}
 
 	if channel != nil {
-		_, err = DeleteMessages(guildID, channel.ID, user.ID, 100, 100)
+		_, err = DeleteMessages(guildID, channel.ID, user.ID, del, del)
 	}
+
 	return err
 }
 

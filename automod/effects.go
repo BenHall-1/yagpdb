@@ -10,9 +10,9 @@ import (
 	"github.com/botlabs-gg/yagpdb/common"
 	"github.com/botlabs-gg/yagpdb/common/scheduledevents2"
 	schEventsModels "github.com/botlabs-gg/yagpdb/common/scheduledevents2/models"
+	"github.com/botlabs-gg/yagpdb/lib/discordgo"
+	"github.com/botlabs-gg/yagpdb/lib/dstate"
 	"github.com/botlabs-gg/yagpdb/moderation"
-	"github.com/jonas747/discordgo/v2"
-	"github.com/jonas747/dstate/v4"
 	"github.com/volatiletech/null"
 	"github.com/volatiletech/sqlboiler/boil"
 	"github.com/volatiletech/sqlboiler/queries/qm"
@@ -272,7 +272,7 @@ func (kick *KickUserEffect) Apply(ctxData *TriggeredRuleData, settings interface
 		reason += ctxData.ConstructReason(true)
 	}
 
-	err := moderation.KickUser(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, &ctxData.MS.User)
+	err := moderation.KickUser(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, &ctxData.MS.User, -1)
 	return err
 }
 
@@ -695,6 +695,85 @@ func (rf *RemoveRoleEffect) Apply(ctxData *TriggeredRuleData, settings interface
 	}
 
 	return nil
+}
+
+/////////////////////////////////////////////////////////////
+
+type SendChannelMessageEffectData struct {
+	CustomReason string `valid:",0,280,trimspace"`
+	PingUser     bool
+}
+
+type SendChannelMessageEffect struct{}
+
+func (send *SendChannelMessageEffect) Kind() RulePartType {
+	return RulePartEffect
+}
+
+func (send *SendChannelMessageEffect) DataType() interface{} {
+	return &SendChannelMessageEffectData{}
+}
+
+func (send *SendChannelMessageEffect) Name() (name string) {
+	return "Send Message"
+}
+
+func (send *SendChannelMessageEffect) Description() (description string) {
+	return "Sends the message on the channel the rule was triggered"
+}
+
+func (send *SendChannelMessageEffect) UserSettings() []*SettingDef {
+	return []*SettingDef{
+		{
+			Name: "Custom message",
+			Key:  "CustomReason",
+			Min:  0,
+			Max:  280,
+			Kind: SettingTypeString,
+		},
+		{
+			Name:    "Ping user committing the infraction",
+			Key:     "PingUser",
+			Kind:    SettingTypeBool,
+			Default: false,
+		},
+	}
+}
+
+func (send *SendChannelMessageEffect) Apply(ctxData *TriggeredRuleData, settings interface{}) error {
+	// Ignore bots
+	if ctxData.MS.User.Bot {
+		return nil
+	}
+
+	// If we dont have any channel data, we can't send a message
+	if ctxData.CS == nil {
+		return nil
+	}
+
+	settingsCast := settings.(*SendChannelMessageEffectData)
+	msgSend := &discordgo.MessageSend{}
+
+	if settingsCast.PingUser {
+		msgSend.Content = "<@" + discordgo.StrID(ctxData.MS.User.ID) + ">\n"
+		msgSend.AllowedMentions = discordgo.AllowedMentions{
+			Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers},
+		}
+	}
+
+	msgSend.Content += "Automoderator:\n"
+	if settingsCast.CustomReason != "" {
+		msgSend.Content += settingsCast.CustomReason
+	} else {
+		msgSend.Content += ctxData.ConstructReason(true)
+	}
+
+	_, err := common.BotSession.ChannelMessageSendComplex(ctxData.CS.ID, msgSend)
+	return err
+}
+
+func (send *SendChannelMessageEffect) MergeDuplicates(data []interface{}) interface{} {
+	return data[0] // no user data
 }
 
 /////////////////////////////////////////////////////////////
