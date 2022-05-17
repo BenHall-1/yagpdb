@@ -53,6 +53,9 @@ var (
 		"println":     withOutputLimit(fmt.Sprintln, MaxStringLength),
 		"printf":      withOutputLimitF(fmt.Sprintf, MaxStringLength),
 
+		// regexp
+		"reQuoteMeta": regexp.QuoteMeta,
+
 		// math
 		"add":        add,
 		"cbrt":       tmplCbrt,
@@ -475,10 +478,6 @@ func (c *Context) IncreaseCheckCallCounterPremium(key string, normalLimit, premi
 
 func (c *Context) IncreaseCheckGenericAPICall() bool {
 	return c.IncreaseCheckCallCounter("api_call", 100)
-}
-
-func (c *Context) IncreaseCheckStateLock() bool {
-	return c.IncreaseCheckCallCounter("state_lock", 500)
 }
 
 func (c *Context) LogEntry() *logrus.Entry {

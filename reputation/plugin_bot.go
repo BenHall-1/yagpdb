@@ -34,8 +34,15 @@ func (p *Plugin) BotInit() {
 
 var thanksRegex = regexp.MustCompile(`(?i)( |\n|^)(thanks?\pP*|danks|ty|thx|\+rep|\+ ?\<\@[0-9]*\>)( |\n|$)`)
 
+var repDisabledError = "**Rep command is disabled on this server. Enable it from the control panel.**"
+
 func handleMessageCreate(evt *eventsystem.EventData) {
 	msg := evt.MessageCreate()
+
+	conf, err := GetConfig(evt.Context(), msg.GuildID)
+	if err != nil || !conf.Enabled || conf.DisableThanksDetection {
+		return
+	}
 
 	if !bot.IsNormalUserMessage(msg.Message) {
 		return
@@ -55,11 +62,6 @@ func handleMessageCreate(evt *eventsystem.EventData) {
 	}
 
 	if !evt.HasFeatureFlag(featureFlagThanksEnabled) {
-		return
-	}
-
-	conf, err := GetConfig(evt.Context(), msg.GuildID)
-	if err != nil || !conf.Enabled || conf.DisableThanksDetection {
 		return
 	}
 
@@ -140,6 +142,10 @@ var cmds = []*commands.YAGCommand{
 				return "An error occurred while finding the server config", err
 			}
 
+			if !conf.Enabled {
+				return repDisabledError, nil
+			}
+
 			if !IsAdmin(parsed.GuildData.GS, parsed.GuildData.MS, conf) {
 				return "You're not a reputation admin. (no manage server perms and no rep admin role)", nil
 			}
@@ -149,6 +155,14 @@ var cmds = []*commands.YAGCommand{
 			targetMember, _ := bot.GetMember(parsed.GuildData.GS.ID, targetID)
 			if targetMember != nil {
 				targetUsername = targetMember.User.Username
+			} else {
+				prevMember, err := userPresentInRepLog(targetID, parsed.GuildData.GS.ID, parsed)
+				if err != nil {
+					return nil, err
+				}
+				if !prevMember {
+					return "Invalid User. This user never received/gave rep in this server", nil
+				}
 			}
 
 			err = SetRep(parsed.Context(), parsed.GuildData.GS.ID, parsed.GuildData.MS.User.ID, targetID, int64(parsed.Args[1].Int()))
@@ -175,6 +189,10 @@ var cmds = []*commands.YAGCommand{
 				return "An error occurred while finding the server config", err
 			}
 
+			if !conf.Enabled {
+				return repDisabledError, nil
+			}
+
 			if !IsAdmin(parsed.GuildData.GS, parsed.GuildData.MS, conf) {
 				return "You're not an reputation admin. (no manage servers perms and no rep admin role)", nil
 			}
@@ -194,13 +212,13 @@ var cmds = []*commands.YAGCommand{
 		Name:                "RepLog",
 		Aliases:             []string{"replogs"},
 		Description:         "Shows the rep log for the specified user.",
-		RequiredArgs:        1,
 		SlashCommandEnabled: true,
 		DefaultEnabled:      false,
 		Arguments: []*dcmd.ArgDef{
 			{Name: "User", Type: dcmd.UserID},
 			{Name: "Page", Type: dcmd.Int, Default: 1},
 		},
+		ArgumentCombos: [][]int{{}, {0}, {1}, {0, 1}},
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			conf, err := GetConfig(parsed.Context(), parsed.GuildData.GS.ID)
 			if err != nil {
@@ -212,6 +230,9 @@ var cmds = []*commands.YAGCommand{
 			}
 
 			targetID := parsed.Args[0].Int64()
+			if targetID == 0 {
+				targetID = parsed.Author.ID
+			}
 
 			const entriesPerPage = 20
 			offset := (parsed.Args[1].Int() - 1) * entriesPerPage
@@ -384,6 +405,10 @@ func CmdGiveRep(parsed *dcmd.Data) (interface{}, error) {
 		return nil, err
 	}
 
+	if !conf.Enabled {
+		return repDisabledError, nil
+	}
+
 	pointsName := conf.PointsName
 
 	if target.ID == parsed.Author.ID {
@@ -426,4 +451,17 @@ func CmdGiveRep(parsed *dcmd.Data) (interface{}, error) {
 
 	msg := fmt.Sprintf("%s `%d` %s %s **%s** (current: `#%d` - `%d`)", actionStr, amount, pointsName, targetStr, target.Username, newRank, newScore)
 	return msg, nil
+}
+
+// Function that checks if the given user has ever received/gave rep in the given server
+func userPresentInRepLog(userID int64, guildID int64, parsed *dcmd.Data) (found bool, err error) {
+	logEntries, err := models.ReputationLogs(qm.Where("guild_id = ? AND (receiver_id = ? OR sender_id = ?)", guildID, userID, userID), qm.OrderBy("id desc"), qm.Limit(1)).AllG(parsed.Context())
+	if err != nil {
+		return false, err
+	}
+
+	if len(logEntries) < 1 {
+		return false, nil
+	}
+	return true, nil
 }
