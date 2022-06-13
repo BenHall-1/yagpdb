@@ -140,6 +140,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		ArgumentCombos:           [][]int{{0, 1, 2}, {0, 2, 1}, {0, 1}, {0, 2}, {0}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
+		IsResponseEphemeral:      true,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			config, target, err := MBaseCmd(parsed, parsed.Args[0].Int64())
 			if err != nil {
@@ -189,6 +190,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageServer}, {discordgo.PermissionBanMembers}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
+		IsResponseEphemeral:      true,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			config, _, err := MBaseCmd(parsed, 0) //No need to check member role hierarchy as banned members should not be in server
 			if err != nil {
@@ -239,6 +241,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		},
 		RequireBotPerms:     [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageServer}, {discordgo.PermissionKickMembers}},
 		SlashCommandEnabled: true,
+		IsResponseEphemeral: true,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			config, target, err := MBaseCmd(parsed, parsed.Args[0].Int64())
 			if err != nil {
@@ -288,6 +291,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		ArgumentCombos:           [][]int{{0, 1, 2}, {0, 2, 1}, {0, 1}, {0, 2}, {0}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
+		IsResponseEphemeral:      true,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			config, target, err := MBaseCmd(parsed, parsed.Args[0].Int64())
 			if err != nil {
@@ -346,6 +350,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageServer}, {discordgo.PermissionManageRoles}},
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
+		IsResponseEphemeral:      true,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			config, target, err := MBaseCmd(parsed, parsed.Args[0].Int64())
 			if err != nil {
@@ -377,6 +382,105 @@ var ModerationCommands = []*commands.YAGCommand{
 			}
 
 			return GenericCmdResp(MAUnmute, target, 0, false, true), nil
+		},
+	},
+	{
+		CustomEnabled: true,
+		CmdCategory:   commands.CategoryModeration,
+		Name:          "Timeout",
+		Description:   "Timeout a member",
+		Arguments: []*dcmd.ArgDef{
+			{Name: "User", Type: dcmd.UserID},
+			{Name: "Duration", Type: &commands.DurationArg{}},
+			{Name: "Reason", Type: dcmd.String},
+		},
+		RequiredDiscordPermsHelp: "TimeoutMembers/ModerateMembers or ManageServer",
+		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageServer}, {discordgo.PermissionModerateMembers}},
+		ArgumentCombos:           [][]int{{0, 1, 2}, {0, 2, 1}, {0, 1}, {0, 2}, {0}},
+		SlashCommandEnabled:      true,
+		DefaultEnabled:           false,
+		IsResponseEphemeral:      true,
+		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
+			config, target, err := MBaseCmd(parsed, parsed.Args[0].Int64())
+			if err != nil {
+				return nil, err
+			}
+
+			reason := parsed.Args[2].Str()
+			reason, err = MBaseCmdSecond(parsed, reason, config.TimeoutReasonOptional, discordgo.PermissionModerateMembers, config.TimeoutCmdRoles, config.TimeoutEnabled)
+			if err != nil {
+				return nil, err
+			}
+
+			d := time.Duration(config.DefaultTimeoutDuration.Int64) * time.Minute
+			if parsed.Args[1].Value != nil {
+				d = parsed.Args[1].Value.(time.Duration)
+			}
+			if d < time.Minute {
+				d = time.Minute
+			}
+
+			logger.Info(d.Seconds())
+
+			member, err := bot.GetMember(parsed.GuildData.GS.ID, target.ID)
+			if err != nil || member == nil {
+				return "Member not found", err
+			}
+
+			var msg *discordgo.Message
+			if parsed.TraditionalTriggerData != nil {
+				msg = parsed.TraditionalTriggerData.Message
+			}
+			err = TimeoutUser(config, parsed.GuildData.GS.ID, parsed.GuildData.CS, msg, parsed.Author, reason, &member.User, d)
+			if err != nil {
+				return nil, err
+			}
+
+			return GenericCmdResp(MATimeoutAdded, target, d, true, false), nil
+		},
+	}, {
+		CustomEnabled: true,
+		CmdCategory:   commands.CategoryModeration,
+		Name:          "RemoveTimeout",
+		Description:   "Removes a member's timeout",
+		RequiredArgs:  1,
+		Arguments: []*dcmd.ArgDef{
+			{Name: "User", Type: dcmd.UserID},
+			{Name: "Reason", Type: dcmd.String},
+		},
+		RequiredDiscordPermsHelp: "TimeoutMember/ModerateMember or ManageServer",
+		RequireBotPerms:          [][]int64{{discordgo.PermissionAdministrator}, {discordgo.PermissionManageServer}, {discordgo.PermissionModerateMembers}},
+		SlashCommandEnabled:      true,
+		DefaultEnabled:           false,
+		IsResponseEphemeral:      true,
+		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
+			config, target, err := MBaseCmd(parsed, parsed.Args[0].Int64())
+			if err != nil {
+				return nil, err
+			}
+
+			reason := parsed.Args[1].Str()
+			reason, err = MBaseCmdSecond(parsed, reason, config.TimeoutReasonOptional, discordgo.PermissionModerateMembers, config.TimeoutCmdRoles, config.TimeoutEnabled)
+			if err != nil {
+				return nil, err
+			}
+
+			member, err := bot.GetMember(parsed.GuildData.GS.ID, target.ID)
+			if err != nil || member == nil {
+				return "Member not found", err
+			}
+
+			memberTimeout := member.Member.TimeoutExpiresAt
+			if memberTimeout == nil || memberTimeout.Before(time.Now()) {
+				return "Member is not timed out", nil
+			}
+
+			err = RemoveTimeout(config, parsed.GuildData.GS.ID, parsed.Author, reason, &member.User)
+			if err != nil {
+				return nil, err
+			}
+
+			return GenericCmdResp(MATimeoutRemoved, target, 0, false, true), nil
 		},
 	},
 	{
@@ -437,8 +541,8 @@ var ModerationCommands = []*commands.YAGCommand{
 
 			send := &discordgo.MessageSend{
 				Content: topContent,
-				Embed:   embed,
-				AllowedMentions: discordgo.AllowedMentions{
+				Embeds:  []*discordgo.MessageEmbed{embed},
+				AllowedMentions: &discordgo.AllowedMentions{
 					Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers},
 				},
 			}
@@ -656,6 +760,7 @@ var ModerationCommands = []*commands.YAGCommand{
 		RequiredDiscordPermsHelp: "ManageMessages or ManageServer",
 		SlashCommandEnabled:      true,
 		DefaultEnabled:           false,
+		IsResponseEphemeral:      true,
 		RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
 			config, target, err := MBaseCmd(parsed, parsed.Args[0].Int64())
 			if err != nil {

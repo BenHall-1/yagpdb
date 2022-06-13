@@ -101,8 +101,8 @@ var Command = &commands.YAGCommand{
 
 		messageSend := &discordgo.MessageSend{
 			Content:         content,
-			Embed:           embed,
-			AllowedMentions: discordgo.AllowedMentions{},
+			Embeds:          []*discordgo.MessageEmbed{embed},
+			AllowedMentions: &discordgo.AllowedMentions{},
 		}
 		_, err := common.BotSession.ChannelMessageSendComplex(cID, messageSend)
 		if err != nil {
