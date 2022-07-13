@@ -400,6 +400,10 @@ func (c *Context) tmplSendMessage(filterSpecialMentions bool, returnID bool) fun
 }
 
 func (c *Context) tmplEditMessage(filterSpecialMentions bool) func(channel interface{}, msgID interface{}, msg interface{}) (interface{}, error) {
+	parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
+	if !filterSpecialMentions {
+		parseMentions = append(parseMentions, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone)
+	}
 	return func(channel interface{}, msgID interface{}, msg interface{}) (interface{}, error) {
 		if c.IncreaseCheckGenericAPICall() {
 			return "", ErrTooManyAPICalls
@@ -412,8 +416,9 @@ func (c *Context) tmplEditMessage(filterSpecialMentions bool) func(channel inter
 
 		mID := ToInt64(msgID)
 		msgEdit := &discordgo.MessageEdit{
-			ID:      mID,
-			Channel: cid,
+			ID:              mID,
+			Channel:         cid,
+			AllowedMentions: discordgo.AllowedMentions{Parse: parseMentions},
 		}
 		var err error
 
@@ -443,6 +448,7 @@ func (c *Context) tmplEditMessage(filterSpecialMentions bool) func(channel inter
 			}
 			msgEdit.Content = typedMsg.Content
 			msgEdit.Embeds = typedMsg.Embeds
+			msgEdit.AllowedMentions = discordgo.AllowedMentions{Parse: parseMentions}
 		default:
 			temp := fmt.Sprint(msg)
 			msgEdit.Content = &temp
