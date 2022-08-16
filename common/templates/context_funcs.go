@@ -102,6 +102,12 @@ func (c *Context) baseChannelArg(v interface{}) *dstate.ChannelState {
 						return &v
 					}
 				}
+				// Do the same for thread names
+				for _, v := range c.GS.Threads {
+					if strings.EqualFold(t, v.Name) && v.Type == discordgo.ChannelTypeGuildPublicThread || v.Type == discordgo.ChannelTypeGuildPrivateThread {
+						return &v
+					}
+				}
 			}
 		}
 	}
@@ -177,7 +183,7 @@ func (c *Context) sendNestedTemplate(channel interface{}, dm bool, name string, 
 				return "", errors.New("unknown channel")
 			}
 
-			cs = c.GS.GetChannel(cID)
+			cs = c.GS.GetChannelOrThread(cID)
 			if cs == nil {
 				return "", errors.New("unknown channel")
 			}
@@ -380,6 +386,9 @@ func (c *Context) tmplSendMessage(filterSpecialMentions bool, returnID bool) fun
 						}
 					}
 				}
+			}
+			if msgSend.Reference != nil && msgSend.Reference.ChannelID == 0 {
+				msgSend.Reference.ChannelID = cid
 			}
 		default:
 			if isDM {
