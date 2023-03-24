@@ -1,0 +1,42 @@
+name: Update YAGPDB
+on: 
+  workflow_dispatch:
+  schedule:
+    - cron: '0 9 * * *'
+
+jobs:
+  merge-upstream:
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: master             # set the branch to merge to
+          fetch-depth: 0 
+      - name: Merge Upstream
+        uses: discdiver/merge-from-upstream-repo@v0.0.9
+        with:
+          upstream: botlabs-gg/yagpdb      # set the upstream repo
+          upstream-branch: master   # set the upstream branch to merge from
+          branch: master          # set the branch to merge to
+          username: BenHall-1
+          useremail: ben@benh.codes
+  update:
+    runs-on: ubuntu-latest
+    needs: [merge-upstream]
+    steps:
+      - uses: actions/checkout@v3
+        with: 
+          repository: benhall-1/yagdactyl
+          token: ${{ secrets.PRIVATE_TOKEN_GITHUB }}
+
+      - name: Pull & update submodules recursively
+        run: |
+          git submodule update --init --recursive
+          git submodule update --recursive --remote
+      - name: Commit
+        run: |
+          git config user.email "ben@benh.codes"
+          git config user.name "BenHall-1"
+          git add --all
+          git commit -m "merge(yagpdb): Bumped YAGPDB version" && git push || echo "No changes to commit"
