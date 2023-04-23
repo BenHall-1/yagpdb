@@ -6,14 +6,18 @@ import (
 	"sync"
 
 	"github.com/botlabs-gg/yagpdb/v2/common"
+	"github.com/botlabs-gg/yagpdb/v2/common/config"
 	"github.com/botlabs-gg/yagpdb/v2/common/mqueue"
 	"github.com/botlabs-gg/yagpdb/v2/twitter/models"
 	twitterscraper "github.com/n0madic/twitter-scraper"
 )
 
 var (
-	logger         = common.GetPluginLogger(&Plugin{})
-	TwitterScraper = twitterscraper.New()
+	logger                   = common.GetPluginLogger(&Plugin{})
+	confTwitterProxy         = config.RegisterOption("yagpdb.twitter.proxy", "Proxy URL to scrape feeds from twitter", "")
+	confTwitterBatchSize     = config.RegisterOption("yagpdb.twitter.batch_size", "Batch Size for scraping feeds", 50)
+	confTwitterPollFrequency = config.RegisterOption("yagpdb.twitter.poll_frequency", "Minimum Delay in each feed poll for all feeds in minutes", 1)
+	confTwitterBatchDelay    = config.RegisterOption("yagpdb.twitter.batch_delay", "Delay in seconds between each batch", 10)
 )
 
 type Plugin struct {
@@ -34,6 +38,10 @@ func (p *Plugin) PluginInfo() *common.PluginInfo {
 
 func RegisterPlugin() {
 	twitterScraper := twitterscraper.New()
+	twitterProxy := confTwitterProxy.GetString()
+	if len(twitterProxy) > 0 {
+		twitterScraper.SetProxy(twitterProxy)
+	}
 
 	p := &Plugin{
 		twitterScraper: twitterScraper,
