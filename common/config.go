@@ -36,7 +36,9 @@ var (
 	ConfLargeBotShardingEnabled = config.RegisterOption("yagpdb.large_bot_sharding", "Set to enable large bot sharding (for 200k+ guilds)", false)
 	ConfBucketsPerNode          = config.RegisterOption("yagpdb.shard.buckets_per_node", "Number of buckets per node", 8)
 	ConfShardBucketSize         = config.RegisterOption("yagpdb.shard.shard_bucket_size", "Shards per bucket", 2)
-	BotOwners                   []int64
+	ConfHttpProxy               = config.RegisterOption("yagpdb.http.proxy", "Proxy Url", "")
+
+	BotOwners []int64
 )
 
 var configLoaded = false

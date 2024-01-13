@@ -3,6 +3,7 @@ package common
 import (
 	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"math/rand"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/lib/dstate"
 	"github.com/lib/pq"
 	"github.com/mediocregopher/radix/v3"
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,6 +28,7 @@ func KeyGuildChannels(guildID int64) string { return "channels:" + discordgo.Str
 
 var LinkRegex = regexp.MustCompile(`(?i)([a-z\d]+://)([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])`)
 var DomainFinderRegex = regexp.MustCompile(`(?i)(?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)+[a-z\d][a-z\d-]{0,61}[a-z\d]`)
+var UGCHtmlPolicy = bluemonday.NewPolicy().AllowElements("h1", "h2", "h3", "h4", "h5", "h6", "p", "ol", "ul", "li", "dl", "dd", "dt", "blockquote", "table", "thead", "th", "tr", "td", "tbody", "del", "i", "b")
 
 type GuildWithConnected struct {
 	*discordgo.UserGuild
@@ -672,4 +675,12 @@ func ParseCodeblock(input string) string {
 	logger.Debugf("Found matches: %#v", parts)
 	logger.Debugf("Returning %s", parts[1])
 	return parts[1]
+}
+
+func Base64DecodeToString(str string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }

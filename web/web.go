@@ -135,7 +135,6 @@ func BaseURL() string {
 	return "http://" + common.ConfHost.GetString()
 }
 
-
 func ManageServerURL(guild *dcmd.GuildContextData) string {
 	return fmt.Sprintf("%s/manage/%d", BaseURL(), guild.GS.ID)
 }
@@ -347,7 +346,7 @@ func setupRoutes() *goji.Mux {
 	}
 
 	AddSidebarItem(SidebarCategoryCore, &SidebarItem{
-		Name: "Core",
+		Name: "Control panel access",
 		URL:  "core",
 		Icon: "fas fa-cog",
 	})
@@ -433,11 +432,13 @@ func loadCoreHTMLTemplate(path string) {
 }
 
 const (
-	SidebarCategoryTopLevel = "Top"
-	SidebarCategoryFeeds    = "Feeds"
-	SidebarCategoryTools    = "Tools"
-	SidebarCategoryFun      = "Fun"
-	SidebarCategoryCore     = "Core"
+	SidebarCategoryTopLevel       = "Top"
+	SidebarCategoryFeeds          = "Feeds"
+	SidebarCategoryTools          = "Tools"
+	SidebarCategoryFun            = "Fun"
+	SidebarCategoryCore           = "Core"
+	SidebarCategoryCustomCommands = "CustomCommands"
+	SidebarCategoryModeration     = "Moderation"
 )
 
 type SidebarItem struct {
