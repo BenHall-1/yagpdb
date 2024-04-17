@@ -21,8 +21,8 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/web"
 	"github.com/karlseguin/ccache"
 	"github.com/mediocregopher/radix/v3"
-	"github.com/volatiletech/null"
-	"github.com/volatiletech/sqlboiler/queries/qm"
+	"github.com/volatiletech/null/v8"
+	"github.com/volatiletech/sqlboiler/v4/queries/qm"
 )
 
 var (
@@ -121,6 +121,8 @@ type CustomCommand struct {
 	ID            int64    `json:"id"`
 	Name          string   `json:"name" schema:"name" valid:",0,100"`
 	IsEnabled     bool     `json:"is_enabled" schema:"is_enabled"`
+	Public        bool     `json:"public" schema:"public"`
+	PublicID      string   `json:"public_id" schema:"public_id"`
 
 	ContextChannel int64 `schema:"context_channel" valid:"channel,true"`
 
@@ -193,6 +195,8 @@ func (cc *CustomCommand) ToDBModel() *models.CustomCommand {
 		TriggerType:              int(cc.TriggerType),
 		TextTrigger:              cc.Trigger,
 		TextTriggerCaseSensitive: cc.CaseSensitive,
+		Public:                   cc.Public,
+		PublicID:                 cc.PublicID,
 
 		Channels:              cc.Channels,
 		ChannelsWhitelistMode: cc.RequireChannels,
