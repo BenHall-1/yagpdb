@@ -160,10 +160,12 @@ var GuildPremiumFunc func(guildID int64) (bool, error)
 type ExecutedFromType int
 
 const (
-	ExecutedFromStandard ExecutedFromType = 0
-	ExecutedFromJoin     ExecutedFromType = 1
-	ExecutedFromLeave    ExecutedFromType = 2
-	ExecutedFromEvalCC   ExecutedFromType = 3
+	ExecutedFromStandard              ExecutedFromType = 0
+	ExecutedFromJoin                  ExecutedFromType = 1
+	ExecutedFromLeave                 ExecutedFromType = 2
+	ExecutedFromEvalCC                ExecutedFromType = 3
+	ExecutedFromCommandTemplate       ExecutedFromType = 4
+	ExecutedFromNestedCommandTemplate ExecutedFromType = 5
 )
 
 type Context struct {
@@ -709,6 +711,7 @@ func baseContextFuncs(c *Context) {
 	c.addContextFunc("addResponseReactions", c.tmplAddResponseReactions)
 	c.addContextFunc("addMessageReactions", c.tmplAddMessageReactions)
 	c.addContextFunc("getMember", c.tmplGetMember)
+	c.addContextFunc("getMemberVoiceState", c.tmplGetMemberVoiceState)
 	c.addContextFunc("getMessage", c.tmplGetMessage)
 	c.addContextFunc("getPinCount", c.tmplGetChannelPins(true))
 	c.addContextFunc("getRole", c.tmplGetRole)
