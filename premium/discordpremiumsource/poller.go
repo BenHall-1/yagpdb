@@ -1,11 +1,11 @@
 package discordpremiumsource
 
 import (
+	"math"
 	"sync"
 	"time"
 
 	"github.com/botlabs-gg/yagpdb/v2/common"
-	"github.com/botlabs-gg/yagpdb/v2/common/config"
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 )
 
@@ -16,16 +16,7 @@ type DiscordPremiumPoller struct {
 	isLastFetchSuccess   bool
 }
 
-var confDiscordPremiumSKUID = config.RegisterOption("yagpdb.discord.premium.sku_id", "SKU_ID for Discord Premium", nil)
-
 func InitPoller() *DiscordPremiumPoller {
-
-	discordPremiumSKUID := int64(confDiscordPremiumSKUID.GetInt())
-	if discordPremiumSKUID == 0 {
-		DiscordPremiumDisabled(nil, "Missing Discord Premium SKU_ID, not starting poller")
-		return nil
-	}
-
 	poller := &DiscordPremiumPoller{}
 	go poller.Run()
 	return poller
@@ -43,7 +34,7 @@ func DiscordPremiumDisabled(err error, reason string) {
 
 func (p *DiscordPremiumPoller) Run() {
 	logger.Info("Starting Discord Premium Poller")
-	ticker := time.NewTicker(time.Minute * 10)
+	ticker := time.NewTicker(time.Minute)
 	for {
 		p.Poll()
 		<-ticker.C
@@ -51,10 +42,10 @@ func (p *DiscordPremiumPoller) Run() {
 }
 
 func (p *DiscordPremiumPoller) IsLastFetchSuccess() bool {
-	if p.activeEntitlements == nil || len(p.activeEntitlements) < 1 {
+	if len(p.activeEntitlements) < 1 {
 		return false
 	}
-	if time.Since(p.lastSuccesfulFetchAt) < time.Minute*10 {
+	if time.Since(p.lastSuccesfulFetchAt) < time.Minute*5 {
 		return p.isLastFetchSuccess
 	}
 	return false
@@ -62,7 +53,6 @@ func (p *DiscordPremiumPoller) IsLastFetchSuccess() bool {
 
 func (p *DiscordPremiumPoller) Poll() {
 	logger.Info("Fetching Discord SKUs")
-	discordPremiumSKUID := int64(confDiscordPremiumSKUID.GetInt())
 	// Get your SKU data
 	skus, err := common.BotSession.SKUs(common.BotApplication.ID)
 	if err != nil || len(skus) < 1 {
@@ -70,29 +60,17 @@ func (p *DiscordPremiumPoller) Poll() {
 		logger.WithError(err).Error("Failed fetching skus")
 		return
 	}
+	logger.Infof("Got %d SKUs", len(skus))
 
-	var is_sku_configured bool
-	for _, sku := range skus {
-		if sku.ID == discordPremiumSKUID {
-			is_sku_configured = true
-			break
-		}
-	}
-
-	if !is_sku_configured {
-		p.isLastFetchSuccess = false
-		logger.Error("SKU ID not found in bot's application SKUs")
-		return
-	}
-
-	afterID := int64(0)
+	beforeID := int64(math.MaxInt64)
 	filterOptions := &discordgo.EntitlementFilterOptions{
-		SkuIDs:       []int64{discordPremiumSKUID},
 		ExcludeEnded: true,
 		Limit:        100,
 	}
+
 	allEntitlements := make([]*discordgo.Entitlement, 0)
 	for {
+		logger.Infof("Fetching Entitlements before %d", beforeID)
 		entitlements, err := common.BotSession.Entitlements(common.BotApplication.ID, filterOptions)
 		if err != nil {
 			p.isLastFetchSuccess = false
@@ -104,18 +82,18 @@ func (p *DiscordPremiumPoller) Poll() {
 			break
 		}
 		for _, entitlement := range entitlements {
-			if entitlement.ID > afterID {
-				afterID = entitlement.ID
+			if entitlement.ID < beforeID {
+				beforeID = entitlement.ID
 			}
 			allEntitlements = append(allEntitlements, entitlement)
 		}
-		filterOptions.AfterID = afterID
-		p.isLastFetchSuccess = true
-		p.lastSuccesfulFetchAt = time.Now()
+		filterOptions.BeforeID = beforeID
 		time.Sleep(time.Second)
 	}
 	// Swap the stored ones, this dosen't mutate the existing returned slices so we dont have to do any copying on each request woo
 	p.mu.Lock()
+	p.isLastFetchSuccess = true
+	p.lastSuccesfulFetchAt = time.Now()
 	p.activeEntitlements = allEntitlements
 	p.mu.Unlock()
 }

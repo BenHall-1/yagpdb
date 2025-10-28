@@ -22,6 +22,7 @@ import (
 // recursive template invocations. This limit allows us to return
 // an error instead of triggering a stack overflow.
 var maxExecDepth = initMaxExecDepth()
+var maxStringLength = 1000000
 
 func initMaxExecDepth() int {
 	if runtime.GOARCH == "wasm" {
@@ -443,8 +444,12 @@ func (s *state) walkRange(dot reflect.Value, r *parse.RangeNode) controlFlowSign
 	// mark top of stack before any variables in the body are pushed.
 	mark := s.mark()
 	oneIteration := func(index, elem reflect.Value) controlFlowSignal {
-		s.incrOPs(1)
+		if elem.Kind() == reflect.String && elem.Len() > maxStringLength {
+			s.errorf("string length exceeds maximum allowed %d", maxStringLength)
+			return controlFlowNone
+		}
 
+		s.incrOPs(1)
 		// Set top var (lexically the second if there are two) to the element.
 		if len(r.Pipe.Decl) > 0 {
 			s.setTopVar(1, elem)
@@ -632,11 +637,18 @@ func (s *state) evalPipeline(dot reflect.Value, pipe *parse.PipeNode) (value ref
 	value = missingVal
 	for _, cmd := range pipe.Cmds {
 		value = s.evalCommand(dot, cmd, value) // previous value is this one's final arg.
+		// prevent strings from being too long
+		if value.Kind() == reflect.String && value.Len() > maxStringLength {
+			s.errorf("string length exceeds maximum allowed %d", maxStringLength)
+			return
+		}
+
 		// If the object has type interface{}, dig down one level to the thing inside.
 		if value.Kind() == reflect.Interface && value.Type().NumMethod() == 0 {
 			value = reflect.ValueOf(value.Interface()) // lovely!
 		}
 	}
+
 	for _, variable := range pipe.Decl {
 		if pipe.IsAssign {
 			s.setVar(variable.Ident[0], value)
@@ -920,7 +932,11 @@ func (s *state) evalCall(dot, fun reflect.Value, node parse.Node, name string, a
 
 	// Special case for builtin execTemplate.
 	if fun == builtinExecTemplate {
-		return s.callExecTemplate(dot, node, argv)
+		v := s.callExecTemplate(dot, node, argv)
+		if v.Kind() == reflect.String && v.Len() > maxStringLength {
+			s.errorf("function response %s exceeds maximum allowed size", name)
+		}
+		return v
 	}
 
 	v, panicked, err := safeCall(fun, argv)
@@ -939,6 +955,9 @@ func (s *state) evalCall(dot, fun reflect.Value, node parse.Node, name string, a
 			s.errorf("error calling %s: %v", name, err)
 		}
 		panic(funcCallError{err})
+	}
+	if v.Kind() == reflect.String && v.Len() > maxStringLength {
+		s.errorf("function response %s exceeds maximum allowed size", name)
 	}
 	if v.Type() == reflectValueType {
 		v = v.Interface().(reflect.Value)

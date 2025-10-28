@@ -40,6 +40,9 @@ var (
 	ServerPublicMux    *goji.Mux
 	ServerPublicAPIMux *goji.Mux
 
+	confListenAddressHTTP  = config.RegisterOption("yagpdb.web.http_address", "Port to listen for HTTP requests on. Overriden by the -pa flag", 5000)
+	confListenAddressHTTPS = config.RegisterOption("yagpdb.web.https_address", "Port to listen for HTTPS requests on. Overriden by the -pa flag", 5001)
+
 	properAddresses bool
 
 	https    bool
@@ -89,18 +92,22 @@ func init() {
 
 	Templates = template.New("")
 	Templates = Templates.Funcs(template.FuncMap{
-		"mTemplate":        mTemplate,
-		"hasPerm":          hasPerm,
-		"formatTime":       prettyTime,
-		"checkbox":         tmplCheckbox,
-		"roleOptions":      tmplRoleDropdown,
-		"roleOptionsMulti": tmplRoleDropdownMutli,
+		"mTemplate":               mTemplate,
+		"hasPerm":                 hasPerm,
+		"formatTime":              prettyTime,
+		"checkbox":                tmplCheckbox,
+		"roleOptions":             tmplRoleDropdown,
+		"roleOptionsMulti":        tmplRoleDropdownMulti,
+		"roleOptionsExclude":      tmplRoleDropdownExclude,
+		"roleOptionsMultiExclude": tmplRoleDropdownMultiExclude,
 
-		"textChannelOptions":      tmplChannelOpts([]discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews, discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildForum}),
-		"textChannelOptionsMulti": tmplChannelOptsMulti([]discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews, discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildForum}),
+		"textChannelOptions": tmplChannelOpts([]discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews, discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildForum,
+			discordgo.ChannelTypeGuildStageVoice}),
+		"textChannelOptionsMulti": tmplChannelOptsMulti([]discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews, discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildForum,
+			discordgo.ChannelTypeGuildStageVoice}),
 
-		"voiceChannelOptions":      tmplChannelOpts([]discordgo.ChannelType{discordgo.ChannelTypeGuildVoice}),
-		"voiceChannelOptionsMulti": tmplChannelOptsMulti([]discordgo.ChannelType{discordgo.ChannelTypeGuildVoice}),
+		"voiceChannelOptions":      tmplChannelOpts([]discordgo.ChannelType{discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildStageVoice}),
+		"voiceChannelOptionsMulti": tmplChannelOptsMulti([]discordgo.ChannelType{discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildStageVoice}),
 
 		"catChannelOptions":      tmplChannelOpts([]discordgo.ChannelType{discordgo.ChannelTypeGuildCategory}),
 		"catChannelOptionsMulti": tmplChannelOptsMulti([]discordgo.ChannelType{discordgo.ChannelTypeGuildCategory}),
@@ -153,6 +160,9 @@ func Run() {
 	if properAddresses {
 		ListenAddressHTTP = ":80"
 		ListenAddressHTTPS = ":443"
+	} else {
+		ListenAddressHTTP = ":" + confListenAddressHTTP.GetString()
+		ListenAddressHTTPS = ":" + confListenAddressHTTPS.GetString()
 	}
 
 	patreon.Run()
@@ -434,6 +444,7 @@ func loadCoreHTMLTemplate(path string) {
 const (
 	SidebarCategoryTopLevel       = "Top"
 	SidebarCategoryFeeds          = "Feeds"
+	SidebarCategoryRoles          = "Roles"
 	SidebarCategoryTools          = "Tools"
 	SidebarCategoryFun            = "Fun"
 	SidebarCategoryCore           = "Core"
@@ -448,6 +459,7 @@ type SidebarItem struct {
 	CustomIconImage string
 	New             bool
 	External        bool
+	IsPremium       bool
 }
 
 var sideBarItems = make(map[string][]*SidebarItem)
