@@ -324,6 +324,7 @@ func setupRoutes() *goji.Mux {
 	CPMux.Use(LoadCoreConfigMiddleware)
 	CPMux.Use(SetGuildMemberMiddleware)
 	CPMux.Use(RequireServerAdminMiddleware)
+	CPMux.Use(GuildPathMutexMiddleware)
 
 	RootMux.Handle(pat.New("/manage/:server"), CPMux)
 	RootMux.Handle(pat.New("/manage/:server/*"), CPMux)
