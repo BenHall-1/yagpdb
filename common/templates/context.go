@@ -102,6 +102,9 @@ var (
 		"clabel":           CreateLabel,
 		"ctextInput":       CreateTextInput,
 		"ctextDisplay":     CreateTextDisplay,
+		"cradioGroup":      CreateRadioGroup,
+		"ccheckboxGroup":   CreateCheckboxGroup,
+		"ccheckbox":        CreateCheckbox,
 
 		// message builders
 		"cembed":             CreateEmbed,
@@ -768,6 +771,8 @@ func baseContextFuncs(c *Context) {
 	c.addContextFunc("getMember", c.tmplGetMember)
 	c.addContextFunc("getMemberVoiceState", c.tmplGetMemberVoiceState)
 	c.addContextFunc("editNickname", c.tmplEditNickname)
+	c.addContextFunc("memberAbove", c.tmplMemberAbove)
+	c.addContextFunc("memberAboveRole", c.tmplMemberAboveRole)
 
 	// Thread functions
 	c.addContextFunc("addThreadMember", c.tmplThreadMemberAdd)

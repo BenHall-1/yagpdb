@@ -1054,6 +1054,44 @@ func (c *Context) tmplGetMember(target interface{}) (*discordgo.Member, error) {
 	return member.DgoMember(), nil
 }
 
+// memberAbove returns whether member a is higher than member b in the guild hierarchy.
+func (c *Context) tmplMemberAbove(a, b *discordgo.Member) (bool, error) {
+	if c.IncreaseCheckGenericAPICall() {
+		return false, ErrTooManyAPICalls
+	}
+
+	if a == nil {
+		return false, nil
+	}
+
+	if b == nil {
+		return true, nil
+	}
+
+	aState := dstate.MemberStateFromMember(a)
+	bState := dstate.MemberStateFromMember(b)
+
+	return bot.IsMemberAbove(c.GS, aState, bState), nil
+}
+
+func (c *Context) tmplMemberAboveRole(a *discordgo.Member, role *discordgo.Role) (bool, error) {
+	if c.IncreaseCheckGenericAPICall() {
+		return false, ErrTooManyAPICalls
+	}
+
+	if a == nil {
+		return false, nil
+	}
+
+	if role == nil {
+		return false, nil
+	}
+
+	aState := dstate.MemberStateFromMember(a)
+
+	return bot.IsMemberAboveRole(c.GS, aState, role), nil
+}
+
 func (c *Context) tmplGetMemberVoiceState(target interface{}) (*discordgo.VoiceState, error) {
 	if c.IncreaseCheckGenericAPICall() {
 		return nil, ErrTooManyAPICalls
@@ -1273,7 +1311,7 @@ func (c *Context) tmplCreateThread(channel, msgID, name interface{}, optionals .
 	}
 
 	if err != nil {
-		return nil, nil // dont send an error, a nil output would indicate invalid/unknown channel
+		return nil, err
 	}
 
 	tstate := dstate.ChannelStateFromDgo(ctxThread)
@@ -1500,7 +1538,7 @@ func (c *Context) tmplCreateForumPost(channel, name, content interface{}, option
 
 	thread, err := common.BotSession.ForumThreadStartComplex(cID, start, msgData)
 	if err != nil {
-		return nil, errors.New("unable to create forum post")
+		return nil, err
 	}
 
 	tstate := dstate.ChannelStateFromDgo(thread)
