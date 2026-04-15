@@ -448,7 +448,7 @@ func CreateComplexMessage(values ...interface{}) (*discordgo.MessageSend, error)
 			}
 
 			msg.Reference = &discordgo.MessageReference{
-				Type: 1,
+				Type: discordgo.MessageReferenceTypeForward,
 			}
 			for k, v := range m {
 				switch strings.ToLower(k) {

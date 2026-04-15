@@ -879,7 +879,7 @@ type CheckboxGroup struct {
 	Options   []CheckboxGroupOption `json:"options"`
 	MinValues int                   `json:"min_values,omitempty"`
 	MaxValues int                   `json:"max_values,omitempty"`
-	Required  *bool                 `json:"required, omitempty"`
+	Required  *bool                 `json:"required,omitempty"`
 	Values    []string              `json:"values,omitempty"`
 }
 

@@ -30,7 +30,11 @@ var (
 )
 
 func (c *Context) parseMessageInput(msg interface{}) (*discordgo.MessageSend, error) {
-	msgSend := &discordgo.MessageSend{}
+	msgSend := &discordgo.MessageSend{
+		AllowedMentions: discordgo.AllowedMentions{
+			Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers},
+		},
+	}
 	var err error
 
 	switch typedMsg := msg.(type) {
@@ -53,17 +57,7 @@ func (c *Context) parseMessageInput(msg interface{}) (*discordgo.MessageSend, er
 		msgSend.Content = ToString(msg)
 	}
 
-	if msgSend.AllowedMentions.Parse == nil {
-		msgSend.AllowedMentions = discordgo.AllowedMentions{
-			Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers},
-		}
-	}
-
-	if msgSend.Flags&discordgo.MessageFlagsIsComponentsV2 == 0 && strings.TrimSpace(msgSend.Content) == "" {
-		if len(msgSend.Embeds) == 0 && len(msgSend.Components) == 0 {
-			return nil, errors.New("both content and embed cannot be null")
-		}
-
+	if msgSend.Flags&discordgo.MessageFlagsIsComponentsV2 == 0 && len(msgSend.Embeds) > 0 {
 		// only keep valid embeds
 		var embeds []*discordgo.MessageEmbed
 		for _, e := range msgSend.Embeds {
@@ -72,9 +66,6 @@ func (c *Context) parseMessageInput(msg interface{}) (*discordgo.MessageSend, er
 			}
 		}
 		msgSend.Embeds = embeds
-		if len(embeds) == 0 && len(msgSend.Components) == 0 {
-			return nil, errors.New("both content and embed cannot be null")
-		}
 	}
 
 	return msgSend, nil
@@ -90,10 +81,8 @@ func (c *Context) tmplSendDM(s ...interface{}) string {
 		return ""
 	}
 
-	if cast, ok := s[0].(*discordgo.MessageSend); ok {
-		if (len(cast.Embeds) == 0 && strings.TrimSpace(cast.Content) == "") && (cast.File == nil) && (len(cast.Components) == 0) {
-			return ""
-		}
+	if (len(msgSend.Embeds) == 0 && strings.TrimSpace(msgSend.Content) == "") && (msgSend.File == nil) && (len(msgSend.Components) == 0) {
+		return ""
 	}
 
 	if msgSend.Content != "" && reflect.TypeOf(s[0]).Kind() != reflect.Ptr && reflect.TypeOf(s[0]).Kind() != reflect.Struct {
@@ -398,10 +387,8 @@ func (c *Context) tmplSendMessage(filterSpecialMentions bool, returnID bool) fun
 			return "", err
 		}
 
-		if cast, ok := msg.(*discordgo.MessageSend); ok {
-			if cast.Reference != nil && cast.Reference.ChannelID == 0 {
-				cast.Reference.ChannelID = cid
-			}
+		if msgSend.Reference != nil && msgSend.Reference.ChannelID == 0 {
+			msgSend.Reference.ChannelID = cid
 		}
 
 		if sendType == sendMessageDM {
