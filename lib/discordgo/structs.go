@@ -1477,6 +1477,33 @@ type WebhookParams struct {
 	AllowedMentions *AllowedMentions    `json:"allowed_mentions,omitempty"`
 }
 
+func (m *WebhookParams) MarshalJSON() ([]byte, error) {
+	type WebhookParamsAlias WebhookParams
+	temp := struct {
+		*WebhookParamsAlias
+		Content         string               `json:"content,omitempty"`
+		Components      *[]TopLevelComponent `json:"components,omitempty"`
+		Embeds          *[]*MessageEmbed     `json:"embeds,omitempty"`
+		AllowedMentions *AllowedMentions     `json:"allowed_mentions,omitempty"`
+		Flags           *MessageFlags        `json:"flags,omitempty"`
+	}{
+		WebhookParamsAlias: (*WebhookParamsAlias)(m),
+		Content:            m.Content,
+		AllowedMentions:    m.AllowedMentions,
+		Flags:              &m.Flags,
+	}
+
+	if m.Components != nil {
+		temp.Components = &m.Components
+	}
+
+	if m.Embeds != nil {
+		temp.Embeds = &m.Embeds
+	}
+
+	return json.Marshal(temp)
+}
+
 // MessageReaction stores the data for a message reaction.
 type MessageReaction struct {
 	UserID    int64 `json:"user_id,string"`

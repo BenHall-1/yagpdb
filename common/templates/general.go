@@ -292,8 +292,8 @@ func CreateComplexMessage(values ...interface{}) (*discordgo.MessageSend, error)
 			if val == nil {
 				continue
 			}
-			v, _ := indirect(reflect.ValueOf(val))
 			msg.Embeds = make([]*discordgo.MessageEmbed, 0)
+			v, _ := indirect(reflect.ValueOf(val))
 			if v.Kind() == reflect.Slice {
 				const maxEmbeds = 10 // Discord limitation
 
