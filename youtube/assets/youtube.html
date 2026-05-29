@@ -17,6 +17,8 @@
     <h2>Youtube upload feeds</h2>
 </header>
 {{template "cp_alerts" .}}
+
+{{template "cp_premium_reminder_banner" (dict "IsGuildPremium" .IsGuildPremium "Count" (len .Subs) "FreeLimit" 10 "PremiumLimit" 250 "FeatureName" "YouTube feeds" "ManageURL" "/premium-perks")}}
 <!-- /.row -->
 <div class="row">
     <div class="card-deck col-lg-12">
@@ -102,7 +104,8 @@
                         
                         <label>YouTube Announcement Message (<span class="yt-announcement-length-counter">{{toRune .Announcement.Message|len}}</span>/5000)</label>
 
-                        <textarea class="form-control" rows="10" id="yt-announcement-msg" name="Message" oninput="OnAnnouncementChange(this)">{{.Announcement.Message}}</textarea>
+                        {{template "codemirror_toggle"}}
+                        <textarea class="form-control template-editor" rows="10" id="yt-announcement-msg" name="Message" oninput="OnAnnouncementChange(this)">{{.Announcement.Message}}</textarea>
                         <span style="display: block;">
                           <button type="submit" id="yt-save-announcement-btn" class="btn btn-sm btn-success btn-block" data-async-form-alertsonly>Save</button>
                         </span>
@@ -286,4 +289,5 @@
     var announcementCheckbox = document.getElementById('yt-announcement-enabled');
     announcementCheckbox.addEventListener('change', (event) => { DisableMentions(); });
 </script>
+{{template "codemirror_assets" .}}
 {{template "cp_footer" .}} {{end}}

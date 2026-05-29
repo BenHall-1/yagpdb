@@ -18,6 +18,8 @@
 
 {{template "cp_alerts" .}}
 
+{{template "cp_premium_reminder_banner" (dict "IsGuildPremium" .IsGuildPremium "Count" (len .TwitchSubs) "FreeLimit" 3 "PremiumLimit" 15 "FeatureName" "Twitch feeds" "ManageURL" "/premium-perks")}}
+
 <div class="row">
     <div class="col-lg-6">
         <div class="card">
@@ -86,7 +88,8 @@
                                     .TwitchAnnouncement}}{{toRune
                                     .TwitchAnnouncement.Message|len}}{{else}}0{{end}}</span>/5000)</label>
 
-                            <textarea class="form-control" rows="10" id="twitch-announcement-msg" name="Message"
+                            {{template "codemirror_toggle"}}
+                            <textarea class="form-control template-editor" rows="10" id="twitch-announcement-msg" name="Message"
                                 oninput="OnAnnouncementChange(this)">{{if .TwitchAnnouncement}}{{.TwitchAnnouncement.Message}}{{else}}{{end}}</textarea>
                             <span style="display: block;">
                                 <button type="submit" id="twitch-save-announcement-btn"
@@ -215,5 +218,6 @@
     </div>
 </div>
 
+{{template "codemirror_assets" .}}
 {{template "cp_footer" .}}
 {{end}}
