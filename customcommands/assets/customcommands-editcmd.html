@@ -323,12 +323,22 @@
                                 {{if and (not .IsGuildPremium) .SlashCommandLimitReached}}
                                 {{template "cp_premium_nudge" (dict "IsGuildPremium" .IsGuildPremium "Title" "You've reached the free limit of 3 slash commands. Premium servers can register up to 10.")}}
                                 {{end}}
-                                <div class="row">
+                                <hr>
+                                 <div class="row">
+                                    <div class="col-lg-12">
+                                        <div class="form-group">
+                                            <label for="name">Name (<span id="name-length">{{len .CC.Name.String}}</span>/100) </label>
+                                            <input type="text" class="form-control" id="name" name="name" placeholder="Enter a name" value="{{if .CC.Name.Valid}}{{.CC.Name.String}}{{end}}">
+                                            <small>An optional name that can be used to identify the command.</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
                                     <div class="col-lg-12">
                                         <div class="form-group">
                                             <label for="slash_command_description">Description (<span id="slash-description-length">{{len (call .GetCCSlashDescription .CC)}}</span>/100)</label>
                                             <input id="slash_command_description" type="text" class="form-control" name="slash_command_description"
-                                                maxlength="100" placeholder="A short description shown in Discord"
+                                                maxlength="100" placeholder="A short description shown on Discord"
                                                 value="{{call .GetCCSlashDescription .CC}}">
                                             <small>Description for the slash command shown on Discord</small>
                                         </div>
@@ -364,7 +374,7 @@
                                                             <option value="user" {{if eq $opt.TypeKey "user"}}selected{{end}}>User</option>
                                                             <option value="channel" {{if eq $opt.TypeKey "channel"}}selected{{end}}>Channel</option>
                                                             <option value="role" {{if eq $opt.TypeKey "role"}}selected{{end}}>Role</option>
-                                                            <option value="mentionable" {{if eq $opt.TypeKey "mentionable"}}selected{{end}}>User or Role</option>
+                                                            <option value="mentionable" {{if eq $opt.TypeKey "mentionable"}}selected{{end}}>Mentionable</option>
                                                         </select>
                                                     </div>
                                                     <div class="col-12 col-md-4 mb-2 mb-md-0">
@@ -450,7 +460,7 @@
                                                     <option value="user">User</option>
                                                     <option value="channel">Channel</option>
                                                     <option value="role">Role</option>
-                                                    <option value="mentionable">User or Role</option>
+                                                    <option value="mentionable">Mentionable</option>
                                                 </select>
                                             </div>
                                             <div class="col-12 col-md-4 mb-2 mb-md-0">
@@ -574,13 +584,6 @@
                         </div>
                         <hr>
                         <div class="row mt-3">
-                            <div class="col-lg-4">
-                                <div class="form-group">
-                                    <label for="name">Name (<span id="name-length">{{len .CC.Name.String}}</span>/100) </label>
-                                    <input type="text" class="form-control" id="name" name="name" placeholder="Enter a name" value="{{if .CC.Name.Valid}}{{.CC.Name.String}}{{end}}">
-                                    <small>An optional name that can be used to identify the command.</small>
-                                </div>
-                            </div>
                              <div class="col-lg-4">
                                 <div class="form-group">
                                     <label for="is_enabled"> Command Enabled?</label>
@@ -1233,13 +1236,15 @@
             const nIn = row.querySelector('[data-slash-field="name"]');
             const dIn = row.querySelector('[data-slash-field="description"]');
             const tSel = row.querySelector('[data-slash-field="type"]');
-            const raw = (nIn ? nIn.value : '').trim();
-            if (raw === '') return; // blank rows are dropped server-side
-            const oname = raw.toLowerCase();
+            const oname = (nIn ? nIn.value : '').trim();
+            if (oname === '') return; // blank rows are dropped server-side
             const label = 'argument "' + oname + '"';
 
             if (!SLASH_NAME_RE.test(oname)) {
-                errors.push('Argument name "' + raw + '" must be 1-32 characters: letters, numbers, dashes and underscores.');
+                errors.push('Argument name "' + oname + '" must be 1-32 characters: letters, numbers, dashes and underscores.');
+                slashMark(nIn, true);
+            } else if (oname !== oname.toLowerCase()) {
+                errors.push('Argument name "' + oname + '" must be lowercase.');
                 slashMark(nIn, true);
             }
             if (seen[oname]) {
