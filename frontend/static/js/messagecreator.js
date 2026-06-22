@@ -178,6 +178,16 @@
     function charLen(s) { return s ? String(s).length : 0; }
     function isURL(s) { return /^https?:\/\//i.test(s) || /^attachment:\/\//i.test(s); }
 
+    function countAllComponents(comps) {
+        let n = 0;
+        (comps || []).forEach(function (c) {
+            n++;
+            if (c.components) n += countAllComponents(c.components);
+            if (c.accessory) n++;
+        });
+        return n;
+    }
+
     function validateComposed(msg, mode) {
         let errs = [];
         if (mode === "normal") {
@@ -192,7 +202,7 @@
             if (rows > 5) errs.push("A message can have at most 5 action rows.");
         } else {
             if (!(msg.components || []).length) errs.push("Add at least one component for a Components V2 message.");
-            if ((msg.components || []).length > 10) errs.push("A Components V2 message can have at most 10 top-level components.");
+            if (countAllComponents(msg.components) > 40) errs.push("A Components V2 message can have at most 40 components in total.");
         }
         validateComponents(msg.components || [], errs);
         return errs;
@@ -417,8 +427,8 @@
     function showCompError(msg) { if (els.compError) els.compError.textContent = msg || ""; }
 
 
-    // touch: a field changed — refresh the preview without rebuilding the editor (keeps input
-    // focus). rebuild: structure changed — re-render the whole builder.
+    // refreshPreview: a field changed — refresh the preview without rebuilding the editor (keeps
+    // input focus). rebuildEditor: structure changed — re-render the whole builder.
     function refreshPreview() { renderPreview(); }
     function rebuildEditor() { renderBuilder(); renderPreview(); }
 
@@ -428,7 +438,7 @@
         let j = idx + delta;
         if (j < 0 || j >= list.length) return;
         let tmp = list[idx]; list[idx] = list[j]; list[j] = tmp;
-        (onChange || rebuild)();
+        (onChange || rebuildEditor)();
     }
 
     function renderBuilder() {
@@ -466,7 +476,7 @@
     }
 
     function nodeHeader(title, list, idx, onChange) {
-        onChange = onChange || rebuild;
+        onChange = onChange || rebuildEditor;
         let tools = el("div", { class: "mc-node-tools" }, [
             btn('<i class="fas fa-arrow-up"></i>', "btn-sm btn-secondary", function () { move(list, idx, -1, onChange); }, { title: "Move up" }),
             btn('<i class="fas fa-arrow-down"></i>', "btn-sm btn-secondary", function () { move(list, idx, 1, onChange); }, { title: "Move down" }),
