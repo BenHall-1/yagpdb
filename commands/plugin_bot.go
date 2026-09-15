@@ -298,6 +298,24 @@ func AddRootCommands(p common.Plugin, cmds ...*YAGCommand) {
 	}
 }
 
+// AddContainerCommand registers cmd as a subcommand of container and records the
+// container so per command overrides resolve consistently.
+func AddContainerCommand(container *dcmd.Container, cmd *YAGCommand) {
+	cmd.containerName = container.Names[0]
+	container.AddCommand(cmd, cmd.GetTrigger())
+}
+
+// AddRootAliases registers cmd at the root under extra names, hidden from help.
+// Used to keep pre container names working once a command moves into one.
+func AddRootAliases(p common.Plugin, cmd *YAGCommand, names ...string) {
+	cmd.Plugin = p
+	cmd.LegacyOverrideNames = append(cmd.LegacyOverrideNames, names...)
+
+	trigger := cmd.GetTrigger().SetHideFromHelp(true)
+	trigger.Names = names
+	CommandSystem.Root.AddCommand(cmd, trigger)
+}
+
 func AddRootCommandsWithMiddlewares(p common.Plugin, middlewares []dcmd.MiddleWareFunc, cmds ...*YAGCommand) {
 	for _, v := range cmds {
 		v.Plugin = p
@@ -391,9 +409,11 @@ func ensureEmbedLimits(embed *discordgo.MessageEmbed) {
 }
 
 var cmdPrefix = &YAGCommand{
-	Name:        "Prefix",
-	Description: "Shows command prefix of the current server, or the specified server",
-	CmdCategory: CategoryTool,
+	Name:                "Prefix",
+	Description:         "Shows command prefix of the current server, or the specified server",
+	CmdCategory:         CategoryTool,
+	SlashCommandEnabled: true,
+	DefaultEnabled:      true,
 	Arguments: []*dcmd.ArgDef{
 		{Name: "Server-ID", Type: dcmd.BigInt, Default: 0},
 	},
@@ -411,21 +431,4 @@ var cmdPrefix = &YAGCommand{
 
 		return fmt.Sprintf("Prefix of `%d`: `%s`", targetGuildID, prefix), nil
 	},
-}
-
-func clearGlobalCommands() error {
-	commands, err := common.BotSession.GetGlobalApplicationCommands(common.BotApplication.ID)
-	if err != nil {
-		return err
-	}
-	logger.Info("COMMANDS LENGTH: ", len(commands))
-	for _, v := range commands {
-		err = common.BotSession.DeleteGlobalApplicationCommand(common.BotApplication.ID, v.ID)
-		if err != nil {
-			return err
-		}
-	}
-
-	logger.Info("DONE")
-	return nil
 }
