@@ -50,7 +50,7 @@ var (
 
 	acceptingRequests *int32
 
-	globalTemplateData = TemplateData(make(map[string]interface{}))
+	globalTemplateData = TemplateData(make(map[string]any))
 
 	StartedAt = time.Now()
 
@@ -153,6 +153,10 @@ func Run() {
 	AddGlobalTemplateData("Version", common.VERSION)
 	AddGlobalTemplateData("Testing", common.Testing)
 
+	if strings.HasPrefix(confGAID.GetString(), "UA-") {
+		logger.Errorf("yagpdb.ga_id is %q, a Universal Analytics property. Google stopped collecting for those on 2023-07-01, so no analytics are being recorded. Replace it with a GA4 measurement id (G-XXXXXXXXXX).", confGAID.GetString())
+	}
+
 	if properAddresses {
 		ListenAddressHTTP = ":80"
 		ListenAddressHTTPS = ":443"
@@ -191,8 +195,8 @@ func loadAd() {
 		Height:  confAdHeight.GetInt(),
 	}
 
-	videos := strings.Split(ConfAdVideos.GetString(), ",")
-	for _, v := range videos {
+	videos := strings.SplitSeq(ConfAdVideos.GetString(), ",")
+	for v := range videos {
 		if v == "" {
 			continue
 		}
@@ -415,7 +419,7 @@ func httpsRedirHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "https://"+r.Host+r.URL.String(), http.StatusMovedPermanently)
 }
 
-func AddGlobalTemplateData(key string, data interface{}) {
+func AddGlobalTemplateData(key string, data any) {
 	globalTemplateData[key] = data
 }
 
