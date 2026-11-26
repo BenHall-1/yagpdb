@@ -43,10 +43,9 @@ type state struct {
 	vars        []variable // push-down stack of variable values.
 	depth       int        // the height of the stack of executing templates.
 	tryDepth    int        // depth of try actions.
-	operations  int
 	returnValue reflect.Value
 
-	allocatedBytes int
+	usage *Usage
 
 	parent *state
 }
@@ -261,29 +260,42 @@ func (t *Template) Execute(wr io.Writer, data any) error {
 	return t.execute(wr, data)
 }
 
+// Usage holds the operations and bytes charged against MaxOps and MaxAllocBytes.
+type Usage struct {
+	Operations     int
+	AllocatedBytes int
+}
+
 // ExecuteCountingAlloc is Execute that also reports the bytes charged against MaxAllocBytes,
 // including when execution stopped with an error.
 func (t *Template) ExecuteCountingAlloc(wr io.Writer, data any) (allocatedBytes int, err error) {
-	return t.executeCountingAlloc(wr, data)
+	usage := &Usage{}
+	err = t.ExecuteWithUsage(wr, data, usage)
+	return usage.AllocatedBytes, err
+}
+
+// ExecuteWithUsage is Execute that charges usage, which may already hold the usage of other
+// executions, so several executions can share one MaxOps and MaxAllocBytes budget.
+func (t *Template) ExecuteWithUsage(wr io.Writer, data any, usage *Usage) error {
+	return t.executeWithUsage(wr, data, usage)
 }
 
 func (t *Template) execute(wr io.Writer, data any) error {
-	_, err := t.executeCountingAlloc(wr, data)
-	return err
+	return t.executeWithUsage(wr, data, &Usage{})
 }
 
-func (t *Template) executeCountingAlloc(wr io.Writer, data any) (allocatedBytes int, err error) {
+func (t *Template) executeWithUsage(wr io.Writer, data any, usage *Usage) (err error) {
 	defer errRecover(&err)
 	value, ok := data.(reflect.Value)
 	if !ok {
 		value = reflect.ValueOf(data)
 	}
 	state := &state{
-		tmpl: t,
-		wr:   wr,
-		vars: []variable{{"$", value}},
+		tmpl:  t,
+		wr:    wr,
+		vars:  []variable{{"$", value}},
+		usage: usage,
 	}
-	defer func() { allocatedBytes = state.allocatedBytes }()
 	if t.Tree == nil || t.Root == nil {
 		state.errorf("%q is an incomplete or empty template", t.Name())
 	}
@@ -568,7 +580,7 @@ func (s *state) walkRange(dot reflect.Value, r *parse.RangeNode) controlFlowSign
 	case reflect.Invalid:
 		break // An invalid value is likely a nil map, etc. and acts like an empty map.
 	default:
-		s.errorf("range can't iterate over %v", val)
+		s.errorf("range can't iterate over %s", val.Type())
 	}
 	if r.ElseList != nil {
 		return s.walk(dot, r.ElseList)
@@ -632,6 +644,7 @@ func (s *state) walkTemplate(dot reflect.Value, t *parse.TemplateNode) {
 	newState.tmpl = tmpl
 	newState.tmpl.maxOps = s.tmpl.maxOps
 	newState.tmpl.maxAllocBytes = s.tmpl.maxAllocBytes
+	newState.tmpl.printCheck = s.tmpl.printCheck
 	// No dynamic scoping: template invocations inherit no variables.
 	newState.vars = []variable{{"$", dot}}
 
@@ -1053,6 +1066,7 @@ func (s *state) callExecTemplate(dot reflect.Value, node parse.Node, args []refl
 	newState.tmpl = tmpl
 	newState.tmpl.maxOps = s.tmpl.maxOps
 	newState.tmpl.maxAllocBytes = s.tmpl.maxAllocBytes
+	newState.tmpl.printCheck = s.tmpl.printCheck
 	newState.vars = []variable{{"$", newDot}}
 
 	if newState.walk(newDot, tmpl.Root) == controlFlowReturnValue {
@@ -1299,6 +1313,11 @@ func (s *state) printValue(n parse.Node, v reflect.Value) {
 	if !ok {
 		s.errorf("can't print %s of type %s", n, v.Type())
 	}
+	if s.tmpl.printCheck != nil {
+		if err := s.tmpl.printCheck(iface); err != nil {
+			s.errorf("%s", err)
+		}
+	}
 	_, err := fmt.Fprint(s.wr, iface)
 	if err != nil {
 		s.writeError(err)
@@ -1309,6 +1328,14 @@ func (s *state) printValue(n parse.Node, v reflect.Value) {
 var nonAllocatingFuncs = map[string]bool{
 	"index": true,
 	"Get":   true,
+}
+
+// These build a large slice out of a single argument, so their result is charged by its size. Other slice
+// results aren't, since appending in a loop would be charged the whole slice again on every iteration.
+var sliceAllocatingFuncs = map[string]bool{
+	"split":   true,
+	"toRune":  true,
+	"shuffle": true,
 }
 
 func (s *state) chargeAlloc(name string, result reflect.Value, args []reflect.Value) {
@@ -1329,6 +1356,8 @@ func (s *state) chargeAlloc(name string, result reflect.Value, args []reflect.Va
 		}
 	case result.Kind() == reflect.Slice && result.Type().Elem().Kind() == reflect.Uint8:
 		size = result.Len()
+	case result.Kind() == reflect.Slice && sliceAllocatingFuncs[name]:
+		size = result.Len() * int(result.Type().Elem().Size())
 	}
 
 	if size > 0 {
@@ -1363,8 +1392,8 @@ func (s *state) incrAlloc(size int) {
 		return
 	}
 
-	s.allocatedBytes += size
-	if s.allocatedBytes > s.tmpl.maxAllocBytes {
+	s.usage.AllocatedBytes += size
+	if s.usage.AllocatedBytes > s.tmpl.maxAllocBytes {
 		s.errorf("exceeded max memory allocation (%dMB)", s.tmpl.maxAllocBytes>>20)
 	}
 }
@@ -1379,9 +1408,9 @@ func (s *state) incrOPs(num int) {
 		return
 	}
 
-	s.operations += num
-	if s.operations > s.tmpl.maxOps {
-		s.errorf("exceeded max operations (%d/%d)", s.operations, s.tmpl.maxOps)
+	s.usage.Operations += num
+	if s.usage.Operations > s.tmpl.maxOps {
+		s.errorf("exceeded max operations (%d/%d)", s.usage.Operations, s.tmpl.maxOps)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -260,6 +261,12 @@ type Context struct {
 
 	ExecutedFrom ExecutedFromType
 
+	// RunningCCs are the custom commands already executing in this synchronous execCC chain, whose locks are held.
+	RunningCCs []int64
+
+	// execUsage is shared by nested template executions so they draw from the parent's budget.
+	execUsage *template.Usage
+
 	contextFuncsAdded bool
 }
 
@@ -337,6 +344,11 @@ func NewContext(gs *dstate.GuildSet, cs *dstate.ChannelState, ms *dstate.MemberS
 func (c *Context) setupContextFuncs() {
 	for _, f := range contextSetupFuncs {
 		f(c)
+	}
+
+	// setup funcs from other packages assign ContextFuncs directly
+	for _, name := range c.DisabledContextFuncs {
+		delete(c.ContextFuncs, name)
 	}
 
 	c.contextFuncsAdded = true
@@ -493,6 +505,17 @@ func putOutputBuffer(buf *bytes.Buffer) {
 	outputBufferPool.Put(buf)
 }
 
+const maxOutputLength = 25000
+
+var errOutputTooBig = errors.New("response grew too big (>25k)")
+
+func checkPrintSize(v any) error {
+	if exceedsSerializedSize(sizeModeFormat, maxOutputLength, v) {
+		return errOutputTooBig
+	}
+	return nil
+}
+
 func (c *Context) executeParsed() (string, error) {
 	parsed := c.CurrentFrame.parsedTemplate
 
@@ -507,10 +530,11 @@ func (c *Context) executeParsed() (string, error) {
 			parsed = parsed.MaxOps(MaxOpsEvalNormal).MaxAllocBytes(MaxAllocEvalNormal)
 		}
 	}
+	parsed = parsed.PrintCheck(checkPrintSize)
 
 	buf := getOutputBuffer()
 	defer putOutputBuffer(buf)
-	w := LimitWriter(buf, 25000)
+	w := LimitWriter(buf, maxOutputLength)
 
 	started := time.Now()
 
@@ -540,8 +564,14 @@ func (c *Context) executeParsed() (string, error) {
 		}
 	}()
 
-	allocated, err := parsed.ExecuteCountingAlloc(w, c.Data)
-	if allocated > LogAllocAbove {
+	nested := c.execUsage != nil
+	if !nested {
+		c.execUsage = &template.Usage{}
+		defer func() { c.execUsage = nil }()
+	}
+
+	err = parsed.ExecuteWithUsage(w, c.Data, c.execUsage)
+	if allocated := c.execUsage.AllocatedBytes; !nested && allocated > LogAllocAbove {
 		logger.WithFields(logrus.Fields{
 			"guild_id":      c.GS.ID,
 			"executed_from": c.ExecutedFrom,
@@ -558,7 +588,7 @@ func (c *Context) executeParsed() (string, error) {
 	result := buf.String()
 	if err != nil {
 		if err == io.ErrShortWrite {
-			err = errors.New("response grew too big (>25k)")
+			err = errOutputTooBig
 		}
 
 		return result, errors.WithMessage(err, "Failed executing template")
@@ -731,11 +761,11 @@ func (c *Context) SendResponse(content string) (m *discordgo.Message, err error)
 		}
 		if !c.CurrentFrame.EphemeralResponse {
 			if len(c.CurrentFrame.AddResponseReactionNames) > 0 {
-				go func(frame *ContextFrame) {
-					for _, v := range frame.AddResponseReactionNames {
+				go func(names []string) {
+					for _, v := range names {
 						common.BotSession.MessageReactionAdd(m.ChannelID, m.ID, v)
 					}
-				}(c.CurrentFrame)
+				}(slices.Clone(c.CurrentFrame.AddResponseReactionNames))
 			}
 
 			if c.CurrentFrame.PublishResponse && c.CurrentFrame.CS.Type == discordgo.ChannelTypeGuildNews {
@@ -838,14 +868,6 @@ func baseContextFuncs(c *Context) {
 
 	// Message send functions
 	c.addContextFunc("sendDM", c.tmplSendDM)
-
-	//TODO: Remove these component functions
-	c.addContextFunc("sendComponentMessageRetID", c.tmplSendComponentsMessage(true, true))
-	c.addContextFunc("sendComponentMessage", c.tmplSendComponentsMessage(true, false))
-	c.addContextFunc("sendComponentMessageNoEscape", c.tmplSendComponentsMessage(false, false))
-	c.addContextFunc("sendComponentMessageNoEscapeRetID", c.tmplSendComponentsMessage(false, true))
-	c.addContextFunc("editComponentMessage", c.tmplEditComponentsMessage(true))
-	c.addContextFunc("editComponentMessageNoEscape", c.tmplEditComponentsMessage(false))
 
 	c.addContextFunc("sendMessage", c.tmplSendMessage(true, false))
 	c.addContextFunc("sendMessageNoEscape", c.tmplSendMessage(false, false))
@@ -1061,6 +1083,9 @@ func MaybeScheduledDeleteMessage(guildID, channelID, messageID int64, delaySecon
 }
 
 func isContainer(v any) bool {
+	if _, ok := v.(*ComponentBuilder); ok {
+		return true
+	}
 	rv, _ := indirect(reflect.ValueOf(v))
 	switch rv.Kind() {
 	case reflect.Array, reflect.Slice, reflect.Map:
@@ -1070,61 +1095,100 @@ func isContainer(v any) bool {
 	}
 }
 
-// Cyclic value detection is modified from encoding/json/encode.go.
-const startDetectingCyclesAfter = 250
-
+// cyclicValueDetector remembers every container it has fully checked, so a container referenced many
+// times is only walked once and a heavily aliased value can't make the check exponential.
 type cyclicValueDetector struct {
-	ptrLevel uint
-	ptrSeen  map[any]struct{}
+	inProgress map[any]struct{}
+	done       map[any]struct{}
+}
+
+type sliceIdentity struct {
+	ptr uintptr
+	len int
+}
+
+func canHoldContainer(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Interface, reflect.Map, reflect.Slice, reflect.Array, reflect.Pointer:
+		return true
+	}
+	return false
 }
 
 func (c *cyclicValueDetector) Check(v reflect.Value) error {
+	if v.IsValid() && v.CanInterface() {
+		if builder, ok := v.Interface().(*ComponentBuilder); ok && builder != nil {
+			return c.visit(builder, "*templates.ComponentBuilder", func() error {
+				return c.Check(reflect.ValueOf(builder.Values))
+			})
+		}
+	}
+
 	v, _ = indirect(v)
 	switch v.Kind() {
 	case reflect.Map:
-		if c.ptrLevel++; c.ptrLevel > startDetectingCyclesAfter {
-			ptr := v.Pointer()
-			if _, ok := c.ptrSeen[ptr]; ok {
-				return fmt.Errorf("encountered a cycle via %s", v.Type())
-			}
-			c.ptrSeen[ptr] = struct{}{}
+		checkKeys := canHoldContainer(v.Type().Key())
+		if v.Len() == 0 || !checkKeys && !canHoldContainer(v.Type().Elem()) {
+			return nil
 		}
+		return c.visit(v.Pointer(), v.Type().String(), func() error {
+			it := v.MapRange()
+			for it.Next() {
+				if checkKeys {
+					if err := c.Check(it.Key()); err != nil {
+						return err
+					}
+				}
+				if err := c.Check(it.Value()); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	case reflect.Slice:
+		if v.Len() == 0 || !canHoldContainer(v.Type().Elem()) {
+			return nil
+		}
+		return c.visit(sliceIdentity{v.Pointer(), v.Len()}, v.Type().String(), func() error {
+			return c.checkElems(v)
+		})
+	case reflect.Array:
+		if !canHoldContainer(v.Type().Elem()) {
+			return nil
+		}
+		return c.checkElems(v)
+	}
+	return nil
+}
 
-		it := v.MapRange()
-		for it.Next() {
-			if err := c.Check(it.Value()); err != nil {
-				return err
-			}
+func (c *cyclicValueDetector) checkElems(v reflect.Value) error {
+	for i := 0; i < v.Len(); i++ {
+		if err := c.Check(v.Index(i)); err != nil {
+			return err
 		}
-		c.ptrLevel--
-		return nil
-	case reflect.Array, reflect.Slice:
-		if c.ptrLevel++; c.ptrLevel > startDetectingCyclesAfter {
-			ptr := struct {
-				ptr uintptr
-				len int
-			}{v.Pointer(), v.Len()}
-			if _, ok := c.ptrSeen[ptr]; ok {
-				return fmt.Errorf("encountered a cycle via %s", v.Type())
-			}
-			c.ptrSeen[ptr] = struct{}{}
-		}
+	}
+	return nil
+}
 
-		for i := 0; i < v.Len(); i++ {
-			elem := v.Index(i)
-			if err := c.Check(elem); err != nil {
-				return err
-			}
-		}
-		c.ptrLevel--
-		return nil
-	default:
+func (c *cyclicValueDetector) visit(key any, typeName string, walk func() error) error {
+	if _, ok := c.done[key]; ok {
 		return nil
 	}
+	if _, ok := c.inProgress[key]; ok {
+		return fmt.Errorf("encountered a cycle via %s", typeName)
+	}
+
+	c.inProgress[key] = struct{}{}
+	err := walk()
+	delete(c.inProgress, key)
+	if err == nil {
+		c.done[key] = struct{}{}
+	}
+	return err
 }
 
 func detectCyclicValue(v any) error {
-	c := &cyclicValueDetector{ptrSeen: make(map[any]struct{})}
+	c := &cyclicValueDetector{inProgress: make(map[any]struct{}), done: make(map[any]struct{})}
 	return c.Check(reflect.ValueOf(v))
 }
 
@@ -1135,7 +1199,7 @@ func (d Dict) Set(key any, value any) (string, error) {
 		return "", errors.New("key cannot be nil")
 	}
 	d[key] = value
-	if isContainer(value) {
+	if isContainer(key) || isContainer(value) {
 		if err := detectCyclicValue(d); err != nil {
 			return "", template.UncatchableError(err)
 		}
@@ -1574,66 +1638,6 @@ func (s *ComponentBuilder) ToComplexMessage() (*discordgo.MessageSend, error) {
 	return msg, nil
 }
 
-func (s *ComponentBuilder) ToComplexMessageEdit() (*discordgo.MessageEdit, error) {
-	empty := ""
-	msg := &discordgo.MessageEdit{
-		AllowedMentions: discordgo.AllowedMentions{Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}},
-		Flags:           discordgo.MessageFlagsIsComponentsV2,
-		Content:         &empty,
-		Embeds:          []*discordgo.MessageEmbed{},
-	}
-
-	componentArgs := &ComponentBuilder{}
-	for i, key := range s.Components {
-		val := s.Values[i]
-
-		switch strings.ToLower(key) {
-		case "allowed_mentions":
-			if val == nil {
-				msg.AllowedMentions = discordgo.AllowedMentions{}
-				continue
-			}
-			parsed, err := parseAllowedMentions(val)
-			if err != nil {
-				return nil, err
-			}
-			msg.AllowedMentions = *parsed
-		case "silent":
-			if val == nil || val == false {
-				continue
-			}
-			msg.Flags |= discordgo.MessageFlagsSuppressNotifications
-		case "ephemeral":
-			if val == nil || val == false {
-				continue
-			}
-			msg.Flags |= discordgo.MessageFlagsEphemeral
-		case "suppress_embeds":
-			if val == nil || val == false {
-				continue
-			}
-			msg.Flags |= discordgo.MessageFlagsSuppressEmbeds
-		default:
-			componentArgs.Add(key, val)
-		}
-	}
-
-	if len(componentArgs.Components) > 0 {
-		components, err := CreateComponentArray(nil, componentArgs)
-		if err != nil {
-			return nil, err
-		}
-
-		err = validateTopLevelComponentsCustomIDs(components, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		msg.Components = components
-	}
-	return msg, nil
-}
-
 func withOutputLimit(f func(...any) string, limit int) func(...any) (string, error) {
 	return func(args ...any) (string, error) {
 		if exceedsSerializedSize(sizeModeFormat, limit, args...) {
@@ -1647,9 +1651,77 @@ func withOutputLimit(f func(...any) string, limit int) func(...any) (string, err
 	}
 }
 
+// formatPadding sums the widths and precisions in a printf format, which fmt pads the output to
+// however small the arguments are.
+func formatPadding(format string, args []any) int {
+	starValue := 0
+	for _, arg := range args {
+		rv := reflect.ValueOf(arg)
+		var n int64
+		switch rv.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			n = rv.Int()
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			n = int64(min(rv.Uint(), math.MaxInt32))
+		default:
+			continue
+		}
+		if n < 0 {
+			n = -n
+		}
+		starValue = max(starValue, int(min(n, math.MaxInt32)))
+	}
+
+	skipArgIndex := func(i int) int {
+		if i < len(format) && format[i] == '[' {
+			if end := strings.IndexByte(format[i:], ']'); end >= 0 {
+				return i + end + 1
+			}
+		}
+		return i
+	}
+	readNumber := func(i int) (int, int) {
+		n := 0
+		for ; i < len(format) && format[i] >= '0' && format[i] <= '9'; i++ {
+			n = min(n*10+int(format[i]-'0'), math.MaxInt32)
+		}
+		return n, i
+	}
+
+	total := 0
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			continue
+		}
+		i++
+		for i < len(format) && strings.IndexByte("+-# 0", format[i]) >= 0 {
+			i++
+		}
+
+		for part := 0; part < 2; part++ {
+			i = skipArgIndex(i)
+			if i < len(format) && format[i] == '*' {
+				total += starValue
+				i++
+			} else {
+				var n int
+				n, i = readNumber(i)
+				total += n
+			}
+			i = skipArgIndex(i)
+			if part == 1 || i >= len(format) || format[i] != '.' {
+				break
+			}
+			i++
+		}
+	}
+	return total
+}
+
 func withOutputLimitF(f func(string, ...any) string, limit int) func(string, ...any) (string, error) {
 	return func(format string, args ...any) (string, error) {
-		if exceedsSerializedSize(sizeModeFormat, limit-len(format), args...) {
+		budget := limit - len(format) - formatPadding(format, args)
+		if budget < 0 || exceedsSerializedSize(sizeModeFormat, budget, args...) {
 			return "", fmt.Errorf("string grew too long (max %d)", limit)
 		}
 		out := f(format, args...)

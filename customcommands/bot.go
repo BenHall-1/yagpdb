@@ -154,7 +154,21 @@ var cmdEvalCommand = &commands.YAGCommand{
 			return "Something weird happened... Contact the support server.", nil
 		}
 
+		evalLog := logger.WithFields(logrus.Fields{
+			"guild":      data.GuildData.GS.ID,
+			"channel":    channel.ID,
+			"user_id":    data.Author.ID,
+			"code_bytes": len(code),
+		})
+		// Logged before execution so an eval that crashes the process is still on record.
+		evalLog.WithField("code", limitString(code, 4000)).Info("Executing eval")
+
+		started := time.Now()
 		out, err := ctx.Execute(code)
+		evalLog.WithFields(logrus.Fields{
+			"duration": time.Since(started),
+			"success":  err == nil,
+		}).Info("Finished eval")
 
 		if err != nil {
 			return formatCustomCommandRunErr(code, err), err
@@ -738,15 +752,18 @@ func ExecuteCustomCommand(cmd *models.CustomCommand, tmplCtx *templates.Context)
 		GuildID: cmd.GuildID,
 		CCID:    cmd.LocalID,
 	}
-	lockHandle := CCExecLock.Lock(lockKey, time.Minute, time.Minute*10)
+	if !slices.Contains(tmplCtx.RunningCCs, cmd.LocalID) {
+		lockHandle := CCExecLock.Lock(lockKey, time.Minute, time.Minute*10)
 
-	if lockHandle == -1 {
-		f.Warn("Exceeded max lock attempts for cc")
-		updatePostCommandRan(cmd, errors.New("Gave up trying to execute, already an existing instance executing"))
-		return nil
+		if lockHandle == -1 {
+			f.Warn("Exceeded max lock attempts for cc")
+			updatePostCommandRan(cmd, errors.New("Gave up trying to execute, already an existing instance executing"))
+			return nil
+		}
+
+		defer CCExecLock.Unlock(lockKey, lockHandle)
 	}
-
-	defer CCExecLock.Unlock(lockKey, lockHandle)
+	tmplCtx.RunningCCs = append(tmplCtx.RunningCCs, cmd.LocalID)
 
 	go analytics.RecordActiveUnit(cmd.GuildID, &Plugin{}, "executed_cc")
 

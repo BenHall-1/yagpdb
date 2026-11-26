@@ -244,8 +244,9 @@ func tmplRunCC(ctx *templates.Context) any {
 			newCtx.Data["ExecData"] = data
 			newCtx.Data["StackDepth"] = currentStackDepth + 1
 			newCtx.ExecutedFrom = ctx.ExecutedFrom
+			newCtx.RunningCCs = slices.Clone(ctx.RunningCCs)
 
-			go ExecuteCustomCommand(cmd, newCtx)
+			ExecuteCustomCommand(cmd, newCtx)
 			return "", nil
 		}
 
@@ -255,7 +256,7 @@ func tmplRunCC(ctx *templates.Context) any {
 
 			Member:       ctx.MS,
 			Message:      ctx.Msg,
-			CurrentFrame: ctx.CurrentFrame,
+			CurrentFrame: delayedRunFrame(ctx.CurrentFrame),
 
 			ExecutedFrom: ctx.ExecutedFrom,
 		}
@@ -283,6 +284,19 @@ func tmplRunCC(ctx *templates.Context) any {
 
 		return "", nil
 	}
+}
+
+// delayedRunFrame copies the frame persisted for a delayed run without the mention
+// permissions, so the delayed run has to opt in to mentions itself.
+func delayedRunFrame(frame *templates.ContextFrame) *templates.ContextFrame {
+	if frame == nil {
+		return nil
+	}
+	persisted := *frame
+	persisted.MentionEveryone = false
+	persisted.MentionHere = false
+	persisted.MentionRoles = nil
+	return &persisted
 }
 
 // tmplScheduleUniqueCC schedules a custom command to be ran in the future, but you can provide a key where it will overwrite existing
@@ -344,7 +358,7 @@ func tmplScheduleUniqueCC(ctx *templates.Context) any {
 			Member:       ctx.MS,
 			Message:      ctx.Msg,
 			UserKey:      stringedKey,
-			CurrentFrame: ctx.CurrentFrame,
+			CurrentFrame: delayedRunFrame(ctx.CurrentFrame),
 
 			ExecutedFrom: ctx.ExecutedFrom,
 		}
@@ -806,9 +820,15 @@ func tmplDBTopEntries(ctx *templates.Context, bottom bool) any {
 	}
 }
 
+const maxSerializedValueSize = 100000
+
 func serializeValue(v any) ([]byte, error) {
+	if templates.ExceedsEncodedSize(v, maxSerializedValueSize) {
+		return nil, errors.New("value is too large to store (max 100kB)")
+	}
+
 	var b bytes.Buffer
-	enc := msgpack.NewEncoder(templates.LimitWriter(&b, 100000))
+	enc := msgpack.NewEncoder(templates.LimitWriter(&b, maxSerializedValueSize))
 	err := enc.Encode(v)
 	return b.Bytes(), err
 }

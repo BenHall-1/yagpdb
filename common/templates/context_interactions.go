@@ -3,11 +3,14 @@ package templates
 import (
 	"encoding/base64"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 
 	"emperror.dev/errors"
 	"github.com/botlabs-gg/yagpdb/v2/common"
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
+	"github.com/karlseguin/ccache"
 )
 
 var ErrTooManyInteractionResponses = errors.New("cannot respond to an interaction > 1 time; consider using a followup")
@@ -442,6 +445,13 @@ func (c *Context) tokenArg(interactionToken any) (sendType sendMessageType, toke
 		if parts[0] != "interaction" {
 			return
 		}
+		isCurrent := c.CurrentFrame.Interaction != nil && sToken == c.CurrentFrame.Interaction.Token
+		if !isCurrent {
+			interactionID, err := strconv.ParseInt(parts[1], 10, 64)
+			if err != nil || c.GS == nil || !interactionInGuild(interactionID, c.GS.ID) {
+				return
+			}
+		}
 		token = sToken
 	}
 
@@ -449,4 +459,24 @@ func (c *Context) tokenArg(interactionToken any) (sendType sendMessageType, toke
 		sendType = sendMessageInteractionResponse
 	}
 	return
+}
+
+// Interaction tokens stay valid for 15 minutes. Interactions and every custom command run for a guild,
+// delayed ones included, happen on the process owning the guild's shard, so this can live in memory.
+const (
+	interactionGuildTTL     = 15 * time.Minute
+	maxRecordedInteractions = 100000
+)
+
+var interactionGuilds = ccache.New(ccache.Configure().MaxSize(maxRecordedInteractions))
+
+// RecordInteractionGuild marks an interaction as belonging to a guild, so templates in
+// that guild may use its token.
+func RecordInteractionGuild(interactionID, guildID int64) {
+	interactionGuilds.Set(strconv.FormatInt(interactionID, 10), guildID, interactionGuildTTL)
+}
+
+func interactionInGuild(interactionID, guildID int64) bool {
+	item := interactionGuilds.Get(strconv.FormatInt(interactionID, 10))
+	return item != nil && !item.Expired() && item.Value().(int64) == guildID
 }

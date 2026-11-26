@@ -268,10 +268,11 @@ func handleGuildAuditLogEntryCreate(evt *eventsystem.EventData) {
 			// Create template context with role trigger specific variables
 			tmplCtx := templates.NewContext(gs, cs, nil)
 			tmplCtx.GS = gs
-			tmplCtx.Data["TargetMember"] = &targetMember    // member who got the role
-			tmplCtx.Data["TargetUser"] = &targetMember.User // user who got the role         // Member who assigned the role
-			tmplCtx.Data["Role"] = role                     // Role that was assigned/removed
-			tmplCtx.Data["Author"] = &modMember.User        // User object who assigned the role
+			tmplCtx.Msg = roleTriggerMessage(gs.ID, cs.ID, modMember)
+			tmplCtx.Data["TargetMember"] = targetMember.DgoMember()
+			tmplCtx.Data["TargetUser"] = &targetMember.User
+			tmplCtx.Data["Role"] = role
+			tmplCtx.Data["Author"] = &modMember.User
 			tmplCtx.Data["RoleAdded"] = roleChange.added
 			err = ExecuteCustomCommand(cmd.CC, tmplCtx)
 			if err != nil {
@@ -279,5 +280,20 @@ func handleGuildAuditLogEntryCreate(evt *eventsystem.EventData) {
 			}
 		}
 
+	}
+}
+
+// roleTriggerMessage builds the context message for a role trigger so that exec runs
+// as the member who changed the roles instead of the bot.
+func roleTriggerMessage(guildID, channelID int64, actor *dstate.MemberState) *discordgo.Message {
+	member := actor.DgoMember()
+	if member == nil {
+		member = &discordgo.Member{GuildID: guildID, User: &actor.User}
+	}
+	return &discordgo.Message{
+		GuildID:   guildID,
+		ChannelID: channelID,
+		Author:    member.User,
+		Member:    member,
 	}
 }

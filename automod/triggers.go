@@ -62,6 +62,10 @@ func messageTexts(m *discordgo.Message, includeExtraText bool) []string {
 
 /////////////////////////////////////////////////////////////
 
+func compiledTriggerRegex(pattern string) *regexp.Regexp {
+	return common.FetchUserRegex(RegexCache, pattern, common.MaxTriggerRegexProgramSize)
+}
+
 type BaseRegexTriggerData struct {
 	Regex            string `valid:",1,250"`
 	SanitizeText     bool
@@ -247,7 +251,7 @@ func (wl *WordListTrigger) UserSettings() []*SettingDef {
 func (wl *WordListTrigger) CheckMessage(triggerCtx *TriggerContext, cs *dstate.ChannelState, m *discordgo.Message) (bool, error) {
 	dataCast := triggerCtx.Data.(*WorldListTriggerData)
 
-	list, err := FindFetchGuildList(triggerCtx.GS.ID, dataCast.ListID)
+	set, err := FindFetchGuildWordSet(triggerCtx.GS.ID, dataCast.ListID)
 	if err != nil {
 		return false, nil
 	}
@@ -260,28 +264,11 @@ func (wl *WordListTrigger) CheckMessage(triggerCtx *TriggerContext, cs *dstate.C
 		}
 	}
 
-	for _, mf := range messageFields {
-		contained := false
-		for _, w := range list.Content {
-			if strings.EqualFold(mf, w) {
-				if wl.Blacklist {
-					// contains a blacklisted word, trigger
-					return true, nil
-				} else {
-					contained = true
-					break
-				}
-			}
-		}
-
-		if !wl.Blacklist && !contained {
-			// word not whitelisted, trigger
-			return true, nil
-		}
+	word, triggered := wordListTriggered(set, messageFields, wl.Blacklist)
+	if triggered {
+		triggerCtx.Detail = wordListMatchDetail(triggerCtx.GS.ID, dataCast.ListID, word, wl.Blacklist)
 	}
-
-	// did not contain a blacklisted word, or contained just whitelisted words
-	return false, nil
+	return triggered, nil
 }
 
 /////////////////////////////////////////////////////////////
@@ -776,17 +763,18 @@ func (g *GoogleSafeBrowsingTrigger) UserSettings() []*SettingDef {
 
 func (g *GoogleSafeBrowsingTrigger) CheckMessage(triggerCtx *TriggerContext, cs *dstate.ChannelState, m *discordgo.Message) (bool, error) {
 	dataCast := triggerCtx.Data.(*IncludeExtraTextTriggerData)
-	for _, input := range messageTexts(m, dataCast.IncludeExtraText) {
-		threat, err := safebrowsing.CheckString(common.ForwardSlashReplacer.Replace(input))
-		if err != nil {
-			logger.WithError(err).Error("Failed checking urls against google safebrowser")
-			continue
-		}
-		if threat != nil {
-			return true, nil
-		}
+	texts := messageTexts(m, dataCast.IncludeExtraText)
+	inputs := make([]string, len(texts))
+	for i, input := range texts {
+		inputs[i] = common.ForwardSlashReplacer.Replace(input)
 	}
-	return false, nil
+
+	threat, err := safebrowsing.CheckStrings(inputs)
+	if err != nil {
+		logger.WithError(err).Error("Failed checking urls against google safebrowser")
+		return false, nil
+	}
+	return threat != nil, nil
 }
 
 func (g *GoogleSafeBrowsingTrigger) MergeDuplicates(data []any) any {
@@ -1121,20 +1109,10 @@ func (r *MessageRegexTrigger) UserSettings() []*SettingDef {
 func (r *MessageRegexTrigger) CheckMessage(triggerCtx *TriggerContext, cs *dstate.ChannelState, m *discordgo.Message) (bool, error) {
 	dataCast := triggerCtx.Data.(*BaseRegexTriggerData)
 
-	item, err := RegexCache.Fetch(dataCast.Regex, time.Minute*10, func() (any, error) {
-		re, err := regexp.Compile(dataCast.Regex)
-		if err != nil {
-			return nil, err
-		}
-
-		return re, nil
-	})
-
-	if err != nil {
+	re := compiledTriggerRegex(dataCast.Regex)
+	if re == nil {
 		return false, nil
 	}
-
-	re := item.Value().(*regexp.Regexp)
 
 	includeExtraText := dataCast.IncludeExtraText && !r.BaseRegexTrigger.Inverse
 	for _, content := range messageTexts(m, includeExtraText) {
@@ -1314,20 +1292,10 @@ func (r *NicknameRegexTrigger) Description() string {
 func (r *NicknameRegexTrigger) CheckNickname(t *TriggerContext) (bool, error) {
 	dataCast := t.Data.(*BaseRegexTriggerData)
 
-	item, err := RegexCache.Fetch(dataCast.Regex, time.Minute*10, func() (any, error) {
-		re, err := regexp.Compile(dataCast.Regex)
-		if err != nil {
-			return nil, err
-		}
-
-		return re, nil
-	})
-
-	if err != nil {
+	re := compiledTriggerRegex(dataCast.Regex)
+	if re == nil {
 		return false, nil
 	}
-
-	re := item.Value().(*regexp.Regexp)
 
 	var sanitizedNick string
 	if dataCast.SanitizeText {
@@ -1403,7 +1371,7 @@ func (nwl *NicknameWordlistTrigger) UserSettings() []*SettingDef {
 func (nwl *NicknameWordlistTrigger) CheckNickname(t *TriggerContext) (bool, error) {
 	dataCast := t.Data.(*NicknameWordlistTriggerData)
 
-	list, err := FindFetchGuildList(t.GS.ID, dataCast.ListID)
+	set, err := FindFetchGuildWordSet(t.GS.ID, dataCast.ListID)
 	if err != nil {
 		return false, nil
 	}
@@ -1414,27 +1382,11 @@ func (nwl *NicknameWordlistTrigger) CheckNickname(t *TriggerContext) (bool, erro
 		fields = append(fields, messageFieldsFixText...) // Could be turned into a 1-liner, lmk if I should or not
 	}
 
-	for _, mf := range fields {
-		contained := false
-		for _, w := range list.Content {
-			if strings.EqualFold(mf, w) {
-				if nwl.Blacklist {
-					// contains a blacklisted word, trigger
-					return true, nil
-				} else {
-					contained = true
-					break
-				}
-			}
-		}
-
-		if !nwl.Blacklist && !contained {
-			// word not whitelisted, trigger
-			return true, nil
-		}
+	word, triggered := wordListTriggered(set, fields, nwl.Blacklist)
+	if triggered {
+		t.Detail = wordListMatchDetail(t.GS.ID, dataCast.ListID, word, nwl.Blacklist)
 	}
-
-	return false, nil
+	return triggered, nil
 }
 
 /////////////////////////////////////////////////////////////
@@ -1464,20 +1416,10 @@ func (r *GlobalnameRegexTrigger) Description() string {
 func (r *GlobalnameRegexTrigger) CheckGlobalname(t *TriggerContext) (bool, error) {
 	dataCast := t.Data.(*BaseRegexTriggerData)
 
-	item, err := RegexCache.Fetch(dataCast.Regex, time.Minute*10, func() (any, error) {
-		re, err := regexp.Compile(dataCast.Regex)
-		if err != nil {
-			return nil, err
-		}
-
-		return re, nil
-	})
-
-	if err != nil {
+	re := compiledTriggerRegex(dataCast.Regex)
+	if re == nil {
 		return false, nil
 	}
-
-	re := item.Value().(*regexp.Regexp)
 
 	var sanitizedGlobalname string
 	if dataCast.SanitizeText {
@@ -1553,7 +1495,7 @@ func (gwl *GlobalnameWordlistTrigger) UserSettings() []*SettingDef {
 func (gwl *GlobalnameWordlistTrigger) CheckGlobalname(t *TriggerContext) (bool, error) {
 	dataCast := t.Data.(*GlobalnameWorldlistData)
 
-	list, err := FindFetchGuildList(t.GS.ID, dataCast.ListID)
+	set, err := FindFetchGuildWordSet(t.GS.ID, dataCast.ListID)
 	if err != nil {
 		return false, nil
 	}
@@ -1564,27 +1506,11 @@ func (gwl *GlobalnameWordlistTrigger) CheckGlobalname(t *TriggerContext) (bool, 
 		fields = append(fields, messageFieldsFixText...) // Could be turned into a 1-liner, lmk if I should or not
 	}
 
-	for _, mf := range fields {
-		contained := false
-		for _, w := range list.Content {
-			if strings.EqualFold(mf, w) {
-				if gwl.Blacklist {
-					// contains a blacklisted word, trigger
-					return true, nil
-				} else {
-					contained = true
-					break
-				}
-			}
-		}
-
-		if !gwl.Blacklist && !contained {
-			// word not whitelisted, trigger
-			return true, nil
-		}
+	word, triggered := wordListTriggered(set, fields, gwl.Blacklist)
+	if triggered {
+		t.Detail = wordListMatchDetail(t.GS.ID, dataCast.ListID, word, gwl.Blacklist)
 	}
-
-	return false, nil
+	return triggered, nil
 }
 
 /////////////////////////////////////////////////////////////
